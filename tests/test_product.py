@@ -1,4 +1,5 @@
 import json
+from array import array
 from pathlib import Path
 
 from n0jcg_air_band_scanner.catalog import AirbandCatalog
@@ -48,3 +49,15 @@ def test_channel_pause_and_block_exclude_from_scan(tmp_path, monkeypatch):
     state.update_channel_control({"action": "clear_all"})
     assert state.channel_control(frequency)["mode"] == "active"
     assert json.loads((tmp_path / "runtime/settings.json").read_text())["channel_controls"] == {}
+
+
+def test_squelch_gate_fades_without_hard_chunk_edges(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "RUNTIME", tmp_path / "runtime")
+    state = server.RadioState(simulate=True)
+    signal = array("h", [12000] * 4096).tobytes()
+    gated = array("h")
+    gated.frombytes(state.audio_chunk(signal))
+    assert 0 < gated[0] < gated[100] < gated[-1] == 12000
+    silence = array("h")
+    silence.frombytes(state.audio_chunk(array("h", [500] * 4096).tobytes()))
+    assert silence[0] > silence[1] > silence[10] >= silence[-1] == 0

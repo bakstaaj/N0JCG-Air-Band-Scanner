@@ -46,6 +46,7 @@ class RadioState:
         self.audio_process: subprocess.Popen[bytes] | None = None
         self.last_audio_rms = 0.0
         self.squelch_open = False
+        self.audio_gate_gain = 0.0
 
     def _load_settings(self) -> None:
         try:
@@ -150,6 +151,7 @@ class RadioState:
         return points
 
     def _start_audio(self, channel: dict) -> None:
+        self.audio_gate_gain = 0.0
         cmd = ["rtl_fm", "-d", REQUIRED_RTL_SERIAL, "-f", str(channel["frequency_hz"]), "-M", "am", "-s", str(INPUT_RATE), "-r", str(OUTPUT_RATE), "-g", str(self.settings["rf_gain_db"]), "-l", "0", "-p", "0", "-E", "offset", "-E", "dc"]
         try: self.audio_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         except OSError: self.audio_process = None
@@ -169,9 +171,19 @@ class RadioState:
         rms = math.sqrt(sum(sample * sample for sample in samples) / max(1, len(samples)))
         with self.lock:
             self.last_audio_rms = round(rms, 1)
-            self.squelch_open = self.settings["squelch_rms"] <= 0 or rms >= self.settings["squelch_rms"]
-        if self.squelch_open: return chunk
-        return b"\0" * usable + chunk[usable:]
+            threshold = self.settings["squelch_rms"]
+            close_threshold = threshold * 0.75
+            self.squelch_open = threshold <= 0 or rms >= (close_threshold if self.squelch_open else threshold)
+            target_gain = 1.0 if self.squelch_open else 0.0
+            gain = self.audio_gate_gain
+            ramp_step = 1.0 / max(1, OUTPUT_RATE // 100)
+            output = array("h")
+            for sample in samples:
+                if gain < target_gain: gain = min(target_gain, gain + ramp_step)
+                elif gain > target_gain: gain = max(target_gain, gain - ramp_step)
+                output.append(max(-32768, min(32767, int(sample * gain))))
+            self.audio_gate_gain = gain
+        return output.tobytes() + chunk[usable:]
 
     def update_location(self, payload: dict) -> dict:
         location = {"label": str(payload.get("label", self.settings["location"].get("label", "Receiver"))).strip() or "Receiver", "latitude": float(payload["latitude"]), "longitude": float(payload["longitude"])}
