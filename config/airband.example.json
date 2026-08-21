@@ -1,0 +1,7 @@
+{
+  "catalog_source": "FAA NASR FRQ.csv",
+  "scan_low_hz": 118000000,
+  "scan_high_hz": 136975000,
+  "receiver_serial": "00000118",
+  "audio": {"modulation": "am", "input_sample_rate_hz": 240000, "sample_rate_hz": 24000, "gain_db": 49.6}
+}

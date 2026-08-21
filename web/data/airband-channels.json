@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "source": "N0JCG development seed; replace with FAA NASR FRQ import for deployment",
+  "channels": [
+    {"frequency_hz": 135100000, "frequency_mhz": 135.100, "frequency_use": "ATIS", "category": "ATIS", "serviced_facility": "KDEN", "serviced_facility_name": "Denver International", "city": "Denver", "state": "CO"},
+    {"frequency_hz": 118700000, "frequency_mhz": 118.700, "frequency_use": "TWR", "category": "Tower", "serviced_facility": "KDEN", "serviced_facility_name": "Denver International", "city": "Denver", "state": "CO"},
+    {"frequency_hz": 121700000, "frequency_mhz": 121.700, "frequency_use": "GND", "category": "Ground", "serviced_facility": "KDEN", "serviced_facility_name": "Denver International", "city": "Denver", "state": "CO"},
+    {"frequency_hz": 123450000, "frequency_mhz": 123.450, "frequency_use": "UNICOM", "category": "UNICOM", "serviced_facility": "KAPA", "serviced_facility_name": "Centennial", "city": "Englewood", "state": "CO"},
+    {"frequency_hz": 118300000, "frequency_mhz": 118.300, "frequency_use": "TWR", "category": "Tower", "serviced_facility": "KCOS", "serviced_facility_name": "Colorado Springs", "city": "Colorado Springs", "state": "CO"}
+  ]
+}

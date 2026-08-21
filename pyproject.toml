@@ -1,0 +1,11 @@
+[project]
+name = "n0jcg-air-band-scanner"
+version = "0.1.0"
+description = "Receive-only civil Airband scanner for RTL-SDR serial 00000118"
+requires-python = ">=3.11"
+
+[project.scripts]
+n0jcg-air-band-scanner = "n0jcg_air_band_scanner.server:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]

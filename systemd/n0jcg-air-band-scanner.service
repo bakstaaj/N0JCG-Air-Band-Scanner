@@ -1,0 +1,14 @@
+[Unit]
+Description=N0JCG Air Band Scanner
+After=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/opt/n0jcg-air-band-scanner
+ExecStart=/usr/bin/python3 -m n0jcg_air_band_scanner.server --host 0.0.0.0 --port 8087
+Environment=PYTHONPATH=/opt/n0jcg-air-band-scanner/src
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
