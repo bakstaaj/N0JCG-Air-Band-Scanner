@@ -1,6 +1,6 @@
 const $ = (id) => document.getElementById(id);
 const fmt = (hz) => `${(hz / 1e6).toFixed(3)} MHz`;
-const esc = (value) => String(value).replace(/[&<>"']/g, (character) => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;", "'":"&#39;"}[character]));
+const esc = (value) => String(value).replace(/[&<>"']/g, (c) => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;", "'":"&#39;"}[c]));
 let audioAbort = null;
 let audioContext = null;
 let audioNode = null;
@@ -11,133 +11,62 @@ async function api(path, options = {}) {
   const response = await fetch(path, {headers: {"Content-Type": "application/json"}, ...options});
   const type = response.headers.get("content-type") || "";
   const data = type.includes("application/json") ? await response.json() : {error: await response.text()};
-  $("log").textContent = JSON.stringify(data, null, 2);
   if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
   return data;
 }
 
 function render(state) {
   $("serial").textContent = state.rtl_serial || "-";
-  $("tuned").textContent = state.tuned ? `${state.tuned.serviced_facility} ${state.tuned.frequency_use}` : "Not tuned";
+  $("tuned").textContent = state.tuned ? `${state.tuned.serviced_facility || "Manual"} ${state.tuned.frequency_use || ""}` : "Not tuned";
   $("frequency").textContent = state.tuned ? fmt(state.tuned.frequency_hz) : "-";
   $("snr").textContent = state.candidates?.[0] ? `${state.candidates[0].snr_db.toFixed(1)} dB SNR` : "-";
   $("scanState").textContent = state.running ? "Audio path selected" : "Stopped";
   const winner = state.candidates?.[0];
-  $("candidates").innerHTML = (state.candidates || []).map((candidate) => `<div class="candidate ${winner && candidate.channel.frequency_hz === winner.channel.frequency_hz ? "winner" : ""}"><span><strong>${esc(candidate.channel.serviced_facility)}</strong> ${esc(candidate.channel.frequency_use)}<br><small>${fmt(candidate.channel.frequency_hz)}</small></span><span>${candidate.snr_db.toFixed(1)} dB SNR</span></div>`).join("") || "No spectrum candidates yet.";
+  $("candidates").innerHTML = (state.candidates || []).map((c) => `<div class="candidate ${winner && c.channel.frequency_hz === winner.channel.frequency_hz ? "winner" : ""}"><span><strong>${esc(c.channel.serviced_facility || "Manual")}</strong> ${esc(c.channel.frequency_use || "")}</span><span>${fmt(c.channel.frequency_hz)} · ${c.snr_db.toFixed(1)} dB</span></div>`).join("") || "No spectrum candidates yet.";
+  renderSettings(state.settings);
 }
 
-function showMessage(message) {
-  $("audioStatus").hidden = false;
-  $("audioStatus").textContent = message;
+function renderSettings(settings) {
+  if (!settings) return;
+  const location = settings.location || {};
+  const tuning = settings.tuning || {};
+  $("locationLabel").value = location.label || "";
+  $("latitude").value = location.latitude ?? "";
+  $("longitude").value = location.longitude ?? "";
+  $("radius").value = settings.radius_miles ?? "";
+  $("rfGain").value = String(tuning.rf_gain_db ?? 40.2);
+  $("searchMode").value = tuning.search_mode || "fast_spectrum";
+  $("spectrumMargin").value = String(tuning.spectrum_margin_db ?? 8);
+  $("activityThreshold").value = String(tuning.activity_threshold_rms ?? 1300);
+  const squelch = Number(tuning.squelch_rms ?? 0);
+  $("squelchValue").textContent = squelch ? `${squelch.toFixed(0)} RMS` : "OPEN";
+  $("squelchState").textContent = tuning.squelch_open ? "OPEN" : "CLOSED";
+  $("rmsValue").textContent = `Current audio RMS: ${Number(tuning.last_audio_rms || 0).toFixed(1)}`;
 }
 
-function stopPcmAudio() {
-  if (audioAbort) audioAbort.abort();
-  audioAbort = null;
-  if (audioNode) audioNode.disconnect();
-  audioNode = null;
-  if (audioContext) audioContext.close();
-  audioContext = null;
-  audioQueue = [];
-  audioQueueOffset = 0;
-}
+function message(id, text, kind = "") { const target = $(id); target.textContent = text; target.className = `hint ${kind}`; }
+function stopPcmAudio() { if (audioAbort) audioAbort.abort(); audioAbort = null; if (audioNode) audioNode.disconnect(); audioNode = null; if (audioContext) audioContext.close(); audioContext = null; audioQueue = []; audioQueueOffset = 0; }
 
 async function startPcmAudio() {
-  stopPcmAudio();
-  audioAbort = new AbortController();
-  audioContext = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 24000});
-  await audioContext.resume();
+  stopPcmAudio(); audioAbort = new AbortController(); audioContext = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 24000}); await audioContext.resume();
   audioNode = audioContext.createScriptProcessor(4096, 0, 1);
-  audioNode.onaudioprocess = (event) => {
-    const output = event.outputBuffer.getChannelData(0);
-    output.fill(0);
-    let written = 0;
-    while (written < output.length && audioQueue.length) {
-      const source = audioQueue[0];
-      const available = source.length - audioQueueOffset;
-      const count = Math.min(available, output.length - written);
-      output.set(source.subarray(audioQueueOffset, audioQueueOffset + count), written);
-      written += count;
-      audioQueueOffset += count;
-      if (audioQueueOffset >= source.length) { audioQueue.shift(); audioQueueOffset = 0; }
-    }
-  };
-  audioNode.connect(audioContext.destination);
-  showMessage("Live AM audio connected - use system/browser volume.");
-  const response = await fetch(`/api/audio.pcm?listen=${Date.now()}`, {signal: audioAbort.signal});
-  if (!response.ok || !response.body) throw new Error("Live PCM audio stream unavailable");
-  const reader = response.body.getReader();
-  let carry = new Uint8Array(0);
-  try {
-    while (true) {
-      const part = await reader.read();
-      if (part.done) break;
-      const bytes = new Uint8Array(carry.length + part.value.length);
-      bytes.set(carry); bytes.set(part.value, carry.length);
-      const usable = bytes.length - (bytes.length % 2);
-      if (!usable) { carry = bytes; continue; }
-      const samples = new Float32Array(usable / 2);
-      const view = new DataView(bytes.buffer, bytes.byteOffset, usable);
-      for (let index = 0; index < samples.length; index += 1) samples[index] = view.getInt16(index * 2, true) / 32768;
-      carry = bytes.slice(usable);
-      audioQueue.push(samples);
-    }
-  } catch (error) {
-    if (error.name !== "AbortError") throw error;
-  }
+  audioNode.onaudioprocess = (event) => { const output = event.outputBuffer.getChannelData(0); output.fill(0); let written = 0; while (written < output.length && audioQueue.length) { const source = audioQueue[0]; const available = source.length - audioQueueOffset; const count = Math.min(available, output.length - written); output.set(source.subarray(audioQueueOffset, audioQueueOffset + count), written); written += count; audioQueueOffset += count; if (audioQueueOffset >= source.length) { audioQueue.shift(); audioQueueOffset = 0; } } };
+  audioNode.connect(audioContext.destination); $("audioStatus").hidden = false; $("audioStatus").textContent = "Live AM audio connected - use system/browser volume.";
+  const response = await fetch(`/api/audio.pcm?listen=${Date.now()}`, {signal: audioAbort.signal}); if (!response.ok || !response.body) throw new Error("Live PCM audio stream unavailable");
+  const reader = response.body.getReader(); let carry = new Uint8Array(0);
+  try { while (true) { const part = await reader.read(); if (part.done) break; const bytes = new Uint8Array(carry.length + part.value.length); bytes.set(carry); bytes.set(part.value, carry.length); const usable = bytes.length - (bytes.length % 2); if (!usable) { carry = bytes; continue; } const samples = new Float32Array(usable / 2); const view = new DataView(bytes.buffer, bytes.byteOffset, usable); for (let i = 0; i < samples.length; i++) samples[i] = view.getInt16(i * 2, true) / 32768; carry = bytes.slice(usable); audioQueue.push(samples); } } catch (error) { if (error.name !== "AbortError") throw error; }
 }
 
-async function listen() {
-  let state = await api("/api/status");
-  if (!state.running) state = await api("/api/scan", {method: "POST", body: "{}"});
-  render(state);
-  if (!state.running || !state.tuned) throw new Error("No valid Airband signal was found.");
-  await startPcmAudio();
-}
+async function run(action) { try { await action(); } catch (error) { $("audioStatus").hidden = false; $("audioStatus").textContent = error.message; } }
+async function scan(nearby = false) { stopPcmAudio(); $("audioStatus").hidden = false; $("audioStatus").textContent = nearby ? "Scanning known FAA channels within the saved radius..." : "Scanning 118.000-136.975 MHz..."; const state = await api(nearby ? "/api/scan/nearby" : "/api/scan", {method: "POST", body: "{}"}); render(state); if (!state.running || !state.tuned) throw new Error(state.error || "No Airband candidate passed the SNR threshold."); await startPcmAudio(); }
+async function listen() { let state = await api("/api/status"); if (!state.running) state = await api("/api/scan", {method: "POST", body: "{}"}); render(state); if (!state.running || !state.tuned) throw new Error("No valid Airband signal was found."); await startPcmAudio(); }
+async function stop() { stopPcmAudio(); render(await api("/api/stop", {method: "POST", body: "{}"})); $("audioStatus").hidden = false; $("audioStatus").textContent = "Audio stopped."; }
+async function tune(frequencyHz) { stopPcmAudio(); const state = await api("/api/select", {method: "POST", body: JSON.stringify({frequency_hz: frequencyHz})}); render(state); await startPcmAudio(); }
+async function findAirport() { const data = await api(`/api/airport?code=${encodeURIComponent($("airport").value)}`); $("airportResults").innerHTML = data.channels.length ? data.channels.map((c) => `<div class="result"><span><strong>${esc(c.frequency_use)}</strong> · ${fmt(c.frequency_hz)}</span><button type="button" data-freq="${c.frequency_hz}">Tune</button></div>`).join("") : "No channels found."; document.querySelectorAll("[data-freq]").forEach((button) => button.addEventListener("click", () => run(() => tune(Number(button.dataset.freq))))); }
+async function loadNearby() { const data = await api("/api/nearby"); $("nearbySummary").textContent = `${data.channels.length} channels within ${Number(data.radius_miles).toFixed(1)} miles of ${data.location.label}.`; $("nearbyChannels").innerHTML = data.channels.length ? data.channels.map((c) => `<div class="nearby-row"><span><strong>${esc(c.serviced_facility)}</strong> ${esc(c.frequency_use)} · ${fmt(c.frequency_hz)}<small>${esc(c.serviced_facility_name || "")} · ${c.distance_miles} mi</small></span><button type="button" data-nearby-freq="${c.frequency_hz}">Tune</button></div>`).join("") : "No FAA channels found in this radius."; document.querySelectorAll("[data-nearby-freq]").forEach((button) => button.addEventListener("click", () => run(() => tune(Number(button.dataset.nearbyFreq))))); }
+async function saveLocation() { const result = await api("/api/settings/location", {method: "POST", body: JSON.stringify({label: $("locationLabel").value, latitude: $("latitude").value, longitude: $("longitude").value, radius_miles: $("radius").value})}); renderSettings(result); message("locationMessage", `Saved ${result.location.label}; ${result.nearby_channel_count} FAA channels found.`, "good"); await loadNearby(); }
+async function saveTuning() { const result = await api("/api/settings/tuning", {method: "POST", body: JSON.stringify({rf_gain_db: $("rfGain").value, search_mode: $("searchMode").value, spectrum_margin_db: $("spectrumMargin").value, activity_threshold_rms: $("activityThreshold").value})}); renderSettings(result); message("tuningMessage", "Airband tuning settings saved.", "good"); }
+async function adjustSquelch(delta) { const result = await api("/api/settings/squelch", {method: "POST", body: JSON.stringify({delta_rms: delta})}); renderSettings(result); }
+async function refresh() { try { const state = await api("/api/status"); render(state); $("status").textContent = "READY"; $("status").className = "pill ok"; } catch (error) { $("status").textContent = "OFFLINE"; $("status").className = "pill warn"; } }
 
-async function scan() {
-  stopPcmAudio();
-  showMessage("Scanning 118.000-136.975 MHz...");
-  const state = await api("/api/scan", {method: "POST", body: "{}"});
-  render(state);
-  if (!state.running || !state.tuned) throw new Error("No Airband candidate passed the SNR threshold.");
-  await startPcmAudio();
-}
-
-async function stop() {
-  stopPcmAudio();
-  const state = await api("/api/stop", {method: "POST", body: "{}"});
-  render(state);
-  showMessage("Audio stopped.");
-}
-
-async function findAirport() {
-  const data = await api(`/api/airport?code=${encodeURIComponent($("airport").value)}`);
-  $("airportResults").innerHTML = data.channels.length ? data.channels.map((channel) => `<div class="result"><span><strong>${esc(channel.frequency_use)}</strong> · ${fmt(channel.frequency_hz)}</span><button type="button" data-freq="${channel.frequency_hz}">Tune</button></div>`).join("") : "No channels found.";
-  document.querySelectorAll("[data-freq]").forEach((button) => button.addEventListener("click", () => tune(Number(button.dataset.freq))));
-}
-
-async function tune(frequencyHz) {
-  stopPcmAudio();
-  showMessage(`Tuning ${fmt(frequencyHz)}...`);
-  const state = await api("/api/select", {method: "POST", body: JSON.stringify({frequency_hz: frequencyHz})});
-  render(state);
-  await startPcmAudio();
-}
-
-async function run(action) {
-  try { await action(); }
-  catch (error) { showMessage(error.message); $("log").textContent = error.stack || error.message; }
-}
-
-async function refresh() {
-  try { render(await api("/api/status")); $("status").textContent = "READY"; $("status").className = "pill ok"; }
-  catch (error) { $("status").textContent = "OFFLINE"; $("status").className = "pill warn"; $("log").textContent = error.message; }
-}
-
-$("scan").addEventListener("click", () => run(scan));
-$("listen").addEventListener("click", () => run(listen));
-$("stop").addEventListener("click", () => run(stop));
-$("find").addEventListener("click", () => run(findAirport));
-refresh();
-setInterval(refresh, 5000);
+$("scan").addEventListener("click", () => run(() => scan(false))); $("scanNearby").addEventListener("click", () => run(() => scan(true))); $("listen").addEventListener("click", () => run(listen)); $("stop").addEventListener("click", () => run(stop)); $("find").addEventListener("click", () => run(findAirport)); $("saveLocation").addEventListener("click", () => run(saveLocation)); $("saveTuning").addEventListener("click", () => run(saveTuning)); $("squelchDown").addEventListener("click", () => run(() => adjustSquelch(-100))); $("squelchUp").addEventListener("click", () => run(() => adjustSquelch(100))); refresh(); loadNearby().catch(() => {}); setInterval(refresh, 5000);

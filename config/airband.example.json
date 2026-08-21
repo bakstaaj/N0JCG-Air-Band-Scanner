@@ -2,6 +2,8 @@
   "catalog_source": "FAA NASR FRQ.csv",
   "scan_low_hz": 118000000,
   "scan_high_hz": 136975000,
+  "location": {"label": "Receiver", "latitude": 38.7467, "longitude": -105.1783},
+  "radius_miles": 25,
   "receiver_serial": "00000118",
-  "audio": {"modulation": "am", "input_sample_rate_hz": 240000, "sample_rate_hz": 24000, "gain_db": 49.6}
+  "audio": {"modulation": "am", "input_sample_rate_hz": 240000, "sample_rate_hz": 24000, "gain_db": 40.2, "squelch_rms": 1300, "squelch_step_rms": 100}
 }

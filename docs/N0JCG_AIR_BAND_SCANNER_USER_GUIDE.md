@@ -12,13 +12,22 @@ Use the RTL-SDR programmed with EEPROM serial `00000118`. Connect an antenna and
 
 On Raspberry Pi OS, copy the repository to the Pi and run `sudo ./deploy/install.sh`. The UI is served on port `8087`. Run `./deploy/install.sh --check-only` before installation to distinguish missing tools from RF problems.
 
+## Tuning and location controls
+
+The Airband tuning defaults follow the N0JCG Air Traffic Center baseline: AM demodulation, 40.2 dB RF gain, 1300 RMS activity threshold, fast spectrum search, and an 8 dB carrier margin. Use **Apply Airband tuning** to save changes. The RF gain affects both FFT survey and live AM tuning.
+
+Playback squelch is independent of the activity threshold. Use the minus and plus controls to change squelch in 100 RMS steps. A value of 0 is open squelch; a positive value mutes audio below the selected RMS level while retaining the tuned channel.
+
+Enter the receiver name, antenna latitude/longitude, and search radius, then save the location. **Scan nearby FAA** uses the current FAA NASR catalog and only scans known channels within that radius. The **Nearby FAA channels** panel provides direct Tune controls for each returned channel.
+
 ## Operation
 
 1. Open the station URL and confirm serial `00000118`.
-2. Select **Scan all Airband**. The service surveys 118.000–136.975 MHz, scores every channel in the loaded catalog, and selects the strongest candidate meeting the 6 dB SNR gate.
-3. Select an airport code such as `KDEN`, then use **Tune** beside a published ATIS, tower, ground, approach, or UNICOM frequency.
-4. Use **Listen** only after a valid tuned channel is shown. Browser audio is 24 kHz mono PCM from the AM demodulator.
-5. Stop audio before changing hardware or sharing the receiver with another application.
+2. Select **Scan full Airband**. The service surveys 118.000–136.975 MHz, scores every channel in the loaded catalog, and selects the strongest candidate meeting the 6 dB SNR gate.
+3. Select **Scan nearby FAA** to survey only channels inside the saved receiver radius.
+4. Select an airport code such as `KDEN`, or use the nearby FAA list, then use **Tune** beside a published ATIS, tower, ground, approach, or UNICOM frequency.
+5. Use **Listen** only after a valid tuned channel is shown. Browser audio is 24 kHz mono PCM from the AM demodulator and is subject to playback squelch.
+6. Stop audio before changing hardware or sharing the receiver with another application.
 
 ## Catalog maintenance
 
