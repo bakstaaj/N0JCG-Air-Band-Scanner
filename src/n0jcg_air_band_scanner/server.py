@@ -6,6 +6,7 @@ import csv
 import json
 import math
 import subprocess
+import struct
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -262,6 +263,16 @@ class Handler(BaseHTTPRequestHandler):
                 process = STATE.audio_process
                 if not process or not process.stdout: self._json({"ok": False, "error": "audio_not_running"}, 409); return
                 self.send_response(200); self.send_header("Content-Type", "application/octet-stream"); self.send_header("Transfer-Encoding", "chunked"); self.end_headers()
+                while STATE.running and process.poll() is None:
+                    chunk = process.stdout.read(32768)
+                    if not chunk: break
+                    self._chunk(STATE.audio_chunk(chunk))
+                return
+            if parsed.path == "/api/audio.wav":
+                process = STATE.audio_process
+                if not process or not process.stdout: self._json({"ok": False, "error": "audio_not_running"}, 409); return
+                header = struct.pack("<4sI4s4sIHHIIHH4sI", b"RIFF", 0xFFFFFFFF, b"WAVE", b"fmt ", 16, 1, 1, OUTPUT_RATE, OUTPUT_RATE * 2, 2, 16, b"data", 0xFFFFFFFF)
+                self.send_response(200); self.send_header("Content-Type", "audio/wav"); self.send_header("Transfer-Encoding", "chunked"); self.end_headers(); self._chunk(header)
                 while STATE.running and process.poll() is None:
                     chunk = process.stdout.read(32768)
                     if not chunk: break
