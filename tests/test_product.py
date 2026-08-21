@@ -44,4 +44,7 @@ def test_channel_pause_and_block_exclude_from_scan(tmp_path, monkeypatch):
     assert state.channel_control(frequency)["mode"] == "block"
     state.update_channel_control({"frequency_hz": frequency, "action": "unblock"})
     assert state.channel_control(frequency)["mode"] == "active"
+    state.update_channel_control({"frequency_hz": frequency, "action": "block"})
+    state.update_channel_control({"action": "clear_all"})
+    assert state.channel_control(frequency)["mode"] == "active"
     assert json.loads((tmp_path / "runtime/settings.json").read_text())["channel_controls"] == {}

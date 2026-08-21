@@ -192,9 +192,13 @@ class RadioState:
         return self.update_tuning({"squelch_rms": self.settings["squelch_rms"] + float(delta)})
 
     def update_channel_control(self, payload: dict) -> dict:
+        action = str(payload.get("action", "")).lower()
+        if action == "clear_all":
+            self.settings["channel_controls"].clear()
+            self._save_settings()
+            return self.settings_payload()
         frequency_hz = int(payload["frequency_hz"])
         if not any(int(item.get("frequency_hz", 0)) == frequency_hz for item in self.catalog.channels()): raise ValueError("Channel frequency was not found in the FAA catalog.")
-        action = str(payload.get("action", "")).lower()
         key = str(frequency_hz)
         if action == "pause": self.settings["channel_controls"][key] = {"mode": "pause", "until": time.time() + 600}
         elif action == "block": self.settings["channel_controls"][key] = {"mode": "block"}
