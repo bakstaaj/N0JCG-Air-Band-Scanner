@@ -27,6 +27,12 @@ Enter the receiver name, antenna latitude/longitude, and search radius, then sav
 3. Select **Scan nearby FAA** to survey only channels inside the saved receiver radius.
 4. Select an airport code such as `KDEN`, or use the nearby FAA list, then use **Tune** beside a published ATIS, tower, ground, approach, or UNICOM frequency.
 5. Use **Listen** only after a valid tuned channel is shown. Browser audio is 24 kHz mono PCM from the AM demodulator and is subject to playback squelch.
+
+## Channel scan controls
+
+The airport-code, nearby FAA, and FFT candidate panels provide per-frequency scan controls. **Pause 10 min** removes a frequency from FFT scanning for ten minutes and then automatically makes it eligible again. **Block** removes it from scanning until **Clear** is selected. These controls are saved in the standalone scanner settings and survive service restarts. They affect scanning only; **Tune** can still be used for deliberate direct listening.
+
+Long channel lists have their own scroll areas so the receiver controls remain accessible.
 6. Stop audio before changing hardware or sharing the receiver with another application.
 
 ## Catalog maintenance

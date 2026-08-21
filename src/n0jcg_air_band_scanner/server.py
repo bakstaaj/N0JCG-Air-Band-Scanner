@@ -7,6 +7,7 @@ import json
 import math
 import subprocess
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -34,7 +35,7 @@ class RadioState:
         self.simulate = simulate
         self.catalog = AirbandCatalog(CATALOG)
         self.settings_path = RUNTIME / "settings.json"
-        self.settings = {"location": dict(DEFAULT_LOCATION), "radius_miles": DEFAULT_RADIUS_MILES, "activity_threshold_rms": DEFAULT_ACTIVITY_THRESHOLD_RMS, "rf_gain_db": DEFAULT_RF_GAIN_DB, "search_mode": "fast_spectrum", "spectrum_margin_db": 8.0, "squelch_rms": DEFAULT_SQUELCH_RMS}
+        self.settings = {"location": dict(DEFAULT_LOCATION), "radius_miles": DEFAULT_RADIUS_MILES, "activity_threshold_rms": DEFAULT_ACTIVITY_THRESHOLD_RMS, "rf_gain_db": DEFAULT_RF_GAIN_DB, "search_mode": "fast_spectrum", "spectrum_margin_db": 8.0, "squelch_rms": DEFAULT_SQUELCH_RMS, "channel_controls": {}}
         self._load_settings()
         self.lock = threading.RLock()
         self.points: list[FftPoint] = []
@@ -52,6 +53,7 @@ class RadioState:
             for key in ("radius_miles", "activity_threshold_rms", "rf_gain_db", "spectrum_margin_db", "squelch_rms"):
                 if key in saved: self.settings[key] = float(saved[key])
             if saved.get("search_mode") in ("traditional", "fast_spectrum"): self.settings["search_mode"] = saved["search_mode"]
+            if isinstance(saved.get("channel_controls"), dict): self.settings["channel_controls"] = saved["channel_controls"]
         except (OSError, ValueError, TypeError):
             pass
 
@@ -69,6 +71,27 @@ class RadioState:
         location = self.settings["location"]
         return self.catalog.nearby(float(location["latitude"]), float(location["longitude"]), float(self.settings["radius_miles"]))
 
+    def _prune_controls(self) -> None:
+        now = time.time()
+        controls = self.settings["channel_controls"]
+        expired = [key for key, value in controls.items() if value.get("mode") == "pause" and float(value.get("until", 0)) <= now]
+        for key in expired: del controls[key]
+
+    def channel_control(self, frequency_hz: int) -> dict:
+        self._prune_controls()
+        value = self.settings["channel_controls"].get(str(int(frequency_hz)))
+        if not value: return {"mode": "active"}
+        if value.get("mode") == "pause": return {"mode": "pause", "until": float(value["until"]), "remaining_seconds": max(0, int(float(value["until"]) - time.time()))}
+        return {"mode": "block"}
+
+    def _with_control(self, channel: dict) -> dict:
+        item = dict(channel)
+        item["scan_control"] = self.channel_control(int(item["frequency_hz"]))
+        return item
+
+    def available_channels(self, nearby: bool = False) -> list[dict]:
+        return [channel for channel in self.channels(nearby) if self.channel_control(int(channel["frequency_hz"]))["mode"] == "active"]
+
     @staticmethod
     def _unique_scan_channels(channels: list[dict]) -> list[dict]:
         unique: dict[int, dict] = {}
@@ -82,17 +105,22 @@ class RadioState:
         with self.lock:
             self._stop_audio()
             channels = self.channels(nearby)
+            scan_channels = self.available_channels(nearby)
             if nearby and not channels:
                 self.running = False
                 self.tuned = None
                 return self.snapshot({"error": "No FAA channels are inside the saved radius."})
-            scan_channels = self._unique_scan_channels(channels)
+            if not scan_channels:
+                self.running = False
+                self.tuned = None
+                return self.snapshot({"error": "All channels in this scan scope are paused or blocked.", "scan_scope": "nearby_faa" if nearby else "full_airband", "catalog_records_considered": len(channels), "excluded_channels": len(channels)})
+            scan_channels = self._unique_scan_channels(scan_channels)
             self.points = simulated_spectrum(scan_channels) if self.simulate else self._rtl_power_spectrum()
             self.candidates = score_channels(self.points, scan_channels)
             self.tuned = self.candidates[0].channel if self.candidates and self.candidates[0].snr_db >= MIN_VALID_SNR_DB else None
             self.running = self.tuned is not None
             if self.running and not self.simulate: self._start_audio(self.tuned)
-            return self.snapshot({"scan_scope": "nearby_faa" if nearby else "full_airband", "channels_scanned": len(scan_channels), "catalog_records_considered": len(channels)})
+            return self.snapshot({"scan_scope": "nearby_faa" if nearby else "full_airband", "channels_scanned": len(scan_channels), "catalog_records_considered": len(channels), "excluded_channels": len(channels) - len(scan_channels)})
 
     def select(self, channel: dict) -> dict:
         with self.lock:
@@ -161,14 +189,28 @@ class RadioState:
     def adjust_squelch(self, delta: float) -> dict:
         return self.update_tuning({"squelch_rms": self.settings["squelch_rms"] + float(delta)})
 
+    def update_channel_control(self, payload: dict) -> dict:
+        frequency_hz = int(payload["frequency_hz"])
+        if not any(int(item.get("frequency_hz", 0)) == frequency_hz for item in self.catalog.channels()): raise ValueError("Channel frequency was not found in the FAA catalog.")
+        action = str(payload.get("action", "")).lower()
+        key = str(frequency_hz)
+        if action == "pause": self.settings["channel_controls"][key] = {"mode": "pause", "until": time.time() + 600}
+        elif action == "block": self.settings["channel_controls"][key] = {"mode": "block"}
+        elif action in ("clear", "unblock"): self.settings["channel_controls"].pop(key, None)
+        else: raise ValueError("Use pause, block, clear, or unblock.")
+        self._save_settings()
+        return self.settings_payload()
+
     def settings_payload(self) -> dict:
-        return {"location": self.settings["location"], "radius_miles": self.settings["radius_miles"], "nearby_channel_count": len(self.channels(True)), "tuning": {"activity_threshold_rms": self.settings["activity_threshold_rms"], "rf_gain_db": self.settings["rf_gain_db"], "search_mode": self.settings["search_mode"], "spectrum_margin_db": self.settings["spectrum_margin_db"], "squelch_rms": self.settings["squelch_rms"], "squelch_open": self.squelch_open, "last_audio_rms": self.last_audio_rms, "audio_profile": {"modulation": "am", "input_sample_rate_hz": INPUT_RATE, "sample_rate_hz": OUTPUT_RATE, "offset_tuning": True, "dc_block": True}}}
+        self._prune_controls()
+        controls = {key: self.channel_control(int(key)) for key in self.settings["channel_controls"]}
+        return {"location": self.settings["location"], "radius_miles": self.settings["radius_miles"], "nearby_channel_count": len(self.channels(True)), "channel_controls": controls, "tuning": {"activity_threshold_rms": self.settings["activity_threshold_rms"], "rf_gain_db": self.settings["rf_gain_db"], "search_mode": self.settings["search_mode"], "spectrum_margin_db": self.settings["spectrum_margin_db"], "squelch_rms": self.settings["squelch_rms"], "squelch_open": self.squelch_open, "last_audio_rms": self.last_audio_rms, "audio_profile": {"modulation": "am", "input_sample_rate_hz": INPUT_RATE, "sample_rate_hz": OUTPUT_RATE, "offset_tuning": True, "dc_block": True}}}
 
     def stop(self) -> dict:
         with self.lock: self.running = False; self._stop_audio(); return self.snapshot()
 
     def snapshot(self, extra: dict | None = None) -> dict:
-        result = {"ok": True, "product": PRODUCT_NAME, "version": VERSION, "simulate": self.simulate, "rtl_serial": REQUIRED_RTL_SERIAL, "running": self.running, "registration": self.registration(), "tuned": self.tuned, "settings": self.settings_payload(), "candidates": [{"channel": item.channel, "peak_frequency_hz": item.peak_frequency_hz, "peak_dbfs": item.peak_dbfs, "noise_floor_dbfs": item.noise_floor_dbfs, "snr_db": item.snr_db} for item in self.candidates]}
+        result = {"ok": True, "product": PRODUCT_NAME, "version": VERSION, "simulate": self.simulate, "rtl_serial": REQUIRED_RTL_SERIAL, "running": self.running, "registration": self.registration(), "tuned": self._with_control(self.tuned) if self.tuned else None, "settings": self.settings_payload(), "candidates": [{"channel": self._with_control(item.channel), "peak_frequency_hz": item.peak_frequency_hz, "peak_dbfs": item.peak_dbfs, "noise_floor_dbfs": item.noise_floor_dbfs, "snr_db": item.snr_db} for item in self.candidates]}
         if extra: result.update(extra)
         return result
 
@@ -188,7 +230,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if parsed.path == "/api/status": self._json(STATE.snapshot()); return
             if parsed.path in ("/api/settings", "/api/settings/airband-scan"): self._json(STATE.settings_payload()); return
-            if parsed.path in ("/api/nearby", "/api/airband/channels"): self._json({"ok": True, **STATE.settings_payload(), "channels": STATE.channels(True)}); return
+            if parsed.path in ("/api/nearby", "/api/airband/channels"): self._json({"ok": True, **STATE.settings_payload(), "channels": [STATE._with_control(item) for item in STATE.channels(True)]}); return
             if parsed.path == "/api/airports": self._json({"airports": STATE.catalog.airport_codes(query.get("q", [""])[0])}); return
             if parsed.path == "/api/airport": self._json({"channels": STATE.catalog.for_airport(query.get("code", [""])[0])}); return
             if parsed.path == "/api/audio.pcm":
@@ -218,6 +260,8 @@ class Handler(BaseHTTPRequestHandler):
             if path in ("/api/settings/tuning", "/api/settings/airband-scan"): self._json(STATE.update_tuning(self._payload())); return
             if path in ("/api/settings/squelch", "/api/settings/airband-playback-squelch"):
                 payload = self._payload(); self._json(STATE.adjust_squelch(payload.get("delta_rms", 0)) if "delta_rms" in payload else STATE.update_tuning({"squelch_rms": payload.get("squelch_rms")})); return
+            if path in ("/api/channel-control", "/api/settings/channel-control"):
+                self._json(STATE.update_channel_control(self._payload())); return
             self._json({"ok": False, "error": "not_found"}, 404)
         except (ValueError, KeyError, TypeError, json.JSONDecodeError) as error: self._json({"ok": False, "error": str(error)}, 400)
         except Exception as error: self._json({"ok": False, "error": str(error)}, 500)

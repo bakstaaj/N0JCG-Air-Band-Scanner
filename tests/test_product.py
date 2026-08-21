@@ -3,6 +3,7 @@ from pathlib import Path
 
 from n0jcg_air_band_scanner.catalog import AirbandCatalog
 from n0jcg_air_band_scanner.fft_scan import score_channels, simulated_spectrum
+from n0jcg_air_band_scanner import server
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -30,3 +31,17 @@ def test_fft_selects_strongest_candidate():
 
 def test_product_contract():
     assert json.loads((ROOT / "web/data/airband-channels.json").read_text())["schema_version"] == 1
+
+
+def test_channel_pause_and_block_exclude_from_scan(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "RUNTIME", tmp_path / "runtime")
+    state = server.RadioState(simulate=True)
+    frequency = 118_700_000
+    state.update_channel_control({"frequency_hz": frequency, "action": "pause"})
+    assert state.channel_control(frequency)["mode"] == "pause"
+    assert frequency not in [int(channel["frequency_hz"]) for channel in state.available_channels()]
+    state.update_channel_control({"frequency_hz": frequency, "action": "block"})
+    assert state.channel_control(frequency)["mode"] == "block"
+    state.update_channel_control({"frequency_hz": frequency, "action": "unblock"})
+    assert state.channel_control(frequency)["mode"] == "active"
+    assert json.loads((tmp_path / "runtime/settings.json").read_text())["channel_controls"] == {}
