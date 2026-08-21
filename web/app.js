@@ -6,6 +6,8 @@ let audioContext = null;
 let audioNode = null;
 let audioQueue = [];
 let audioQueueOffset = 0;
+let scanScope = "full";
+let currentTunedFrequency = null;
 
 async function api(path, options = {}) {
   const response = await fetch(path, {headers: {"Content-Type": "application/json"}, ...options});
@@ -19,8 +21,10 @@ function render(state) {
   $("serial").textContent = state.rtl_serial || "-";
   $("tuned").textContent = state.tuned ? `${state.tuned.serviced_facility || "Manual"} ${state.tuned.frequency_use || ""}` : "Not tuned";
   $("frequency").textContent = state.tuned ? fmt(state.tuned.frequency_hz) : "-";
+  currentTunedFrequency = state.tuned ? Number(state.tuned.frequency_hz) : null;
+  $("tunedControls").hidden = !currentTunedFrequency;
   $("snr").textContent = state.candidates?.[0] ? `${state.candidates[0].snr_db.toFixed(1)} dB SNR` : "-";
-  $("scanState").textContent = state.running ? "Audio path selected" : "Stopped";
+  $("scanState").textContent = state.paused ? "Paused" : state.running ? "Scanning / audio live" : "Stopped";
   const winner = state.candidates?.[0];
   $("candidates").innerHTML = (state.candidates || []).map((c) => `<div class="candidate ${winner && c.channel.frequency_hz === winner.channel.frequency_hz ? "winner" : ""}"><span><strong>${esc(c.channel.serviced_facility || "Manual")}</strong> ${esc(c.channel.frequency_use || "")}<small>${fmt(c.channel.frequency_hz)} · ${c.snr_db.toFixed(1)} dB</small></span>${renderChannelControls(c.channel)}</div>`).join("") || "No spectrum candidates yet.";
   renderSettings(state.settings);
@@ -68,8 +72,8 @@ async function startPcmAudio() {
 }
 
 async function run(action) { try { await action(); } catch (error) { $("audioStatus").hidden = false; $("audioStatus").textContent = error.message; } }
-async function scan(nearby = false) { stopPcmAudio(); $("audioStatus").hidden = false; $("audioStatus").textContent = nearby ? "Scanning known FAA channels within the saved radius..." : "Scanning 118.000-136.975 MHz..."; const state = await api(nearby ? "/api/scan/nearby" : "/api/scan", {method: "POST", body: "{}"}); render(state); if (!state.running || !state.tuned) throw new Error(state.error || "No Airband candidate passed the SNR threshold."); await startPcmAudio(); }
-async function listen() { let state = await api("/api/status"); if (!state.running) state = await api("/api/scan", {method: "POST", body: "{}"}); render(state); if (!state.running || !state.tuned) throw new Error("No valid Airband signal was found."); await startPcmAudio(); }
+async function scan(nearby = scanScope === "nearby") { stopPcmAudio(); $("audioStatus").hidden = false; $("audioStatus").textContent = nearby ? "Scanning known FAA channels within the saved radius..." : "Scanning 118.000-136.975 MHz..."; const state = await api(nearby ? "/api/scan/nearby" : "/api/scan", {method: "POST", body: "{}"}); render(state); if (!state.running || !state.tuned) throw new Error(state.error || "No Airband candidate passed the SNR threshold."); await startPcmAudio(); }
+async function pauseScan() { stopPcmAudio(); render(await api("/api/pause", {method: "POST", body: "{}"})); $("audioStatus").hidden = false; $("audioStatus").textContent = "Scanning and browser audio paused."; }
 async function stop() { stopPcmAudio(); render(await api("/api/stop", {method: "POST", body: "{}"})); $("audioStatus").hidden = false; $("audioStatus").textContent = "Audio stopped."; }
 async function tune(frequencyHz) { stopPcmAudio(); const state = await api("/api/select", {method: "POST", body: JSON.stringify({frequency_hz: frequencyHz})}); render(state); await startPcmAudio(); }
 async function findAirport() { const data = await api(`/api/airport?code=${encodeURIComponent($("airport").value)}`); $("airportResults").innerHTML = data.channels.length ? data.channels.map((c) => `<div class="result"><span><strong>${esc(c.frequency_use)}</strong><small>${fmt(c.frequency_hz)}</small></span><span class="channel-row-actions"><button type="button" data-freq="${c.frequency_hz}">Tune</button>${renderChannelControls(c)}</span></div>`).join("") : "No channels found."; document.querySelectorAll("[data-freq]").forEach((button) => button.addEventListener("click", () => run(() => tune(Number(button.dataset.freq))))); bindChannelControls(); }
@@ -78,7 +82,8 @@ async function saveLocation() { const result = await api("/api/settings/location
 async function saveTuning() { const result = await api("/api/settings/tuning", {method: "POST", body: JSON.stringify({rf_gain_db: $("rfGain").value, search_mode: $("searchMode").value, spectrum_margin_db: $("spectrumMargin").value, activity_threshold_rms: $("activityThreshold").value})}); renderSettings(result); message("tuningMessage", "Airband tuning settings saved.", "good"); }
 async function adjustSquelch(delta) { const result = await api("/api/settings/squelch", {method: "POST", body: JSON.stringify({delta_rms: delta})}); renderSettings(result); }
 async function updateChannelControl(action, frequencyHz) { const result = await api("/api/channel-control", {method: "POST", body: JSON.stringify({action, frequency_hz: frequencyHz})}); renderSettings(result); message("channelMessage", action === "pause" ? "Channel paused for 10 minutes." : action === "block" ? "Channel blocked until cleared." : "Channel scan control cleared.", "good"); await loadNearby(); }
+async function updateTunedChannel(action) { if (!currentTunedFrequency) return; await updateChannelControl(action, currentTunedFrequency); }
 function bindChannelControls() { document.querySelectorAll("[data-channel-action]").forEach((button) => button.addEventListener("click", () => run(() => updateChannelControl(button.dataset.channelAction, Number(button.dataset.channelFrequency))))); }
 async function refresh() { try { const state = await api("/api/status"); render(state); $("status").textContent = "READY"; $("status").className = "pill ok"; } catch (error) { $("status").textContent = "OFFLINE"; $("status").className = "pill warn"; } }
 
-$("scan").addEventListener("click", () => run(() => scan(false))); $("scanNearby").addEventListener("click", () => run(() => scan(true))); $("listen").addEventListener("click", () => run(listen)); $("stop").addEventListener("click", () => run(stop)); $("find").addEventListener("click", () => run(findAirport)); $("saveLocation").addEventListener("click", () => run(saveLocation)); $("saveTuning").addEventListener("click", () => run(saveTuning)); $("squelchDown").addEventListener("click", () => run(() => adjustSquelch(-100))); $("squelchUp").addEventListener("click", () => run(() => adjustSquelch(100))); refresh(); loadNearby().catch(() => {}); setInterval(refresh, 5000);
+$("scanFull").addEventListener("change", () => { scanScope = "full"; }); $("scanNearbyScope").addEventListener("change", () => { scanScope = "nearby"; }); $("start").addEventListener("click", () => run(() => scan())); $("pauseScan").addEventListener("click", () => run(pauseScan)); $("stop").addEventListener("click", () => run(stop)); $("tunedPause").addEventListener("click", () => run(() => updateTunedChannel("pause"))); $("tunedBlock").addEventListener("click", () => run(() => updateTunedChannel("block"))); $("tunedClear").addEventListener("click", () => run(() => updateTunedChannel("clear"))); $("find").addEventListener("click", () => run(findAirport)); $("saveLocation").addEventListener("click", () => run(saveLocation)); $("saveTuning").addEventListener("click", () => run(saveTuning)); $("squelchDown").addEventListener("click", () => run(() => adjustSquelch(-100))); $("squelchUp").addEventListener("click", () => run(() => adjustSquelch(100))); refresh(); loadNearby().catch(() => {}); setInterval(refresh, 5000);

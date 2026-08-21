@@ -42,6 +42,7 @@ class RadioState:
         self.candidates = []
         self.tuned: dict | None = None
         self.running = False
+        self.paused = False
         self.audio_process: subprocess.Popen[bytes] | None = None
         self.last_audio_rms = 0.0
         self.squelch_open = False
@@ -104,6 +105,7 @@ class RadioState:
     def scan(self, nearby: bool = False) -> dict:
         with self.lock:
             self._stop_audio()
+            self.paused = False
             channels = self.channels(nearby)
             scan_channels = self.available_channels(nearby)
             if nearby and not channels:
@@ -207,10 +209,17 @@ class RadioState:
         return {"location": self.settings["location"], "radius_miles": self.settings["radius_miles"], "nearby_channel_count": len(self.channels(True)), "channel_controls": controls, "tuning": {"activity_threshold_rms": self.settings["activity_threshold_rms"], "rf_gain_db": self.settings["rf_gain_db"], "search_mode": self.settings["search_mode"], "spectrum_margin_db": self.settings["spectrum_margin_db"], "squelch_rms": self.settings["squelch_rms"], "squelch_open": self.squelch_open, "last_audio_rms": self.last_audio_rms, "audio_profile": {"modulation": "am", "input_sample_rate_hz": INPUT_RATE, "sample_rate_hz": OUTPUT_RATE, "offset_tuning": True, "dc_block": True}}}
 
     def stop(self) -> dict:
-        with self.lock: self.running = False; self._stop_audio(); return self.snapshot()
+        with self.lock: self.running = False; self.paused = False; self._stop_audio(); return self.snapshot()
+
+    def pause_scan(self) -> dict:
+        with self.lock:
+            self.running = False
+            self.paused = True
+            self._stop_audio()
+            return self.snapshot()
 
     def snapshot(self, extra: dict | None = None) -> dict:
-        result = {"ok": True, "product": PRODUCT_NAME, "version": VERSION, "simulate": self.simulate, "rtl_serial": REQUIRED_RTL_SERIAL, "running": self.running, "registration": self.registration(), "tuned": self._with_control(self.tuned) if self.tuned else None, "settings": self.settings_payload(), "candidates": [{"channel": self._with_control(item.channel), "peak_frequency_hz": item.peak_frequency_hz, "peak_dbfs": item.peak_dbfs, "noise_floor_dbfs": item.noise_floor_dbfs, "snr_db": item.snr_db} for item in self.candidates]}
+        result = {"ok": True, "product": PRODUCT_NAME, "version": VERSION, "simulate": self.simulate, "rtl_serial": REQUIRED_RTL_SERIAL, "running": self.running, "paused": self.paused, "registration": self.registration(), "tuned": self._with_control(self.tuned) if self.tuned else None, "settings": self.settings_payload(), "candidates": [{"channel": self._with_control(item.channel), "peak_frequency_hz": item.peak_frequency_hz, "peak_dbfs": item.peak_dbfs, "noise_floor_dbfs": item.noise_floor_dbfs, "snr_db": item.snr_db} for item in self.candidates]}
         if extra: result.update(extra)
         return result
 
@@ -251,6 +260,7 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         try:
             if path in ("/api/scan", "/api/scan/nearby"): self._json(STATE.scan(path.endswith("nearby"))); return
+            if path == "/api/pause": self._json(STATE.pause_scan()); return
             if path == "/api/stop": self._json(STATE.stop()); return
             if path == "/api/select":
                 payload = self._payload(); match = next((item for item in STATE.catalog.channels() if int(item["frequency_hz"]) == int(payload.get("frequency_hz", 0))), None)
