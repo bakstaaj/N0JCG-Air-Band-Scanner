@@ -69,6 +69,15 @@ class RadioState:
         location = self.settings["location"]
         return self.catalog.nearby(float(location["latitude"]), float(location["longitude"]), float(self.settings["radius_miles"]))
 
+    @staticmethod
+    def _unique_scan_channels(channels: list[dict]) -> list[dict]:
+        unique: dict[int, dict] = {}
+        for channel in channels:
+            frequency_hz = int(channel.get("frequency_hz", 0))
+            if frequency_hz > 0 and frequency_hz not in unique:
+                unique[frequency_hz] = channel
+        return list(unique.values())
+
     def scan(self, nearby: bool = False) -> dict:
         with self.lock:
             self._stop_audio()
@@ -77,12 +86,13 @@ class RadioState:
                 self.running = False
                 self.tuned = None
                 return self.snapshot({"error": "No FAA channels are inside the saved radius."})
-            self.points = simulated_spectrum(channels) if self.simulate else self._rtl_power_spectrum()
-            self.candidates = score_channels(self.points, channels)
+            scan_channels = self._unique_scan_channels(channels)
+            self.points = simulated_spectrum(scan_channels) if self.simulate else self._rtl_power_spectrum()
+            self.candidates = score_channels(self.points, scan_channels)
             self.tuned = self.candidates[0].channel if self.candidates and self.candidates[0].snr_db >= MIN_VALID_SNR_DB else None
             self.running = self.tuned is not None
             if self.running and not self.simulate: self._start_audio(self.tuned)
-            return self.snapshot({"scan_scope": "nearby_faa" if nearby else "full_airband", "channels_scanned": len(channels)})
+            return self.snapshot({"scan_scope": "nearby_faa" if nearby else "full_airband", "channels_scanned": len(scan_channels), "catalog_records_considered": len(channels)})
 
     def select(self, channel: dict) -> dict:
         with self.lock:
