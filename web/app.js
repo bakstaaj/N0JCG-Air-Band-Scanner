@@ -4,11 +4,9 @@ const esc = (value) => String(value).replace(/[&<>"']/g, (c) => ({"&":"&amp;", "
 let audioAbort = null;
 let audioContext = null;
 let audioNode = null;
-let audioSources = [];
-let audioNextTime = 0;
-let audioPending = [];
-let audioPendingSamples = 0;
-const AUDIO_BUFFER_SAMPLES = 65536;
+let audioRing = null;
+let audioReader = null;
+let audioPending = new Uint8Array(0);
 let scanScope = "full";
 let currentTunedFrequency = null;
 
@@ -62,23 +60,9 @@ function renderSettings(settings) {
 }
 
 function message(id, text, kind = "") { const target = $(id); target.textContent = text; target.className = `hint ${kind}`; }
-function stopPcmAudio() { if (audioAbort) audioAbort.abort(); audioAbort = null; const player = $("audioPlayer"); if (player) { player.pause(); player.removeAttribute("src"); player.load(); } audioSources.forEach((source) => { try { source.stop(); } catch (_) {} }); audioSources = []; audioPending = []; audioPendingSamples = 0; if (audioNode) audioNode.disconnect(); audioNode = null; if (audioContext) audioContext.close(); audioContext = null; audioNextTime = 0; }
+function stopPcmAudio() { if (audioAbort) audioAbort.abort(); audioAbort = null; if (audioReader) audioReader.cancel().catch(() => {}); audioReader = null; audioPending = new Uint8Array(0); if (audioNode) audioNode.disconnect(); audioNode = null; if (audioRing) audioRing.reset(); audioRing = null; if (audioContext) audioContext.close(); audioContext = null; }
 
-function scheduleAudioBuffer(samples) { if (!samples.length) return; const buffer = audioContext.createBuffer(1, samples.length, 24000); buffer.copyToChannel(samples, 0); const source = audioContext.createBufferSource(); const gain = audioContext.createGain(); source.buffer = buffer; source.connect(gain); gain.connect(audioContext.destination); const fade = Math.min(0.02, buffer.duration / 4); const startAt = Math.max(audioNextTime - fade, audioContext.currentTime + 0.1); const endAt = startAt + buffer.duration; gain.gain.setValueAtTime(0, startAt); gain.gain.linearRampToValueAtTime(1, startAt + fade); gain.gain.setValueAtTime(1, Math.max(startAt + fade, endAt - fade)); gain.gain.linearRampToValueAtTime(0, endAt); source.start(startAt); audioNextTime = endAt; audioSources.push(source); source.onended = () => { audioSources = audioSources.filter((item) => item !== source); }; }
-
-function queueAudioBuffer(samples) { audioPending.push(samples); audioPendingSamples += samples.length; if (audioPendingSamples < AUDIO_BUFFER_SAMPLES) return; const merged = new Float32Array(audioPendingSamples); let offset = 0; audioPending.forEach((part) => { merged.set(part, offset); offset += part.length; }); audioPending = []; audioPendingSamples = 0; scheduleAudioBuffer(merged); }
-
-async function startPcmAudio() {
-  const player = $("audioPlayer"); if (!player) throw new Error("Browser audio element is unavailable."); stopPcmAudio(); player.src = `/api/audio.wav?listen=${Date.now()}`; player.load(); try { await player.play(); $("audioStatus").hidden = false; $("audioStatus").textContent = "Live AM audio connected - use system/browser volume."; return; } catch (_) { stopPcmAudio(); }
-  await startScheduledPcmAudio();
-}
-
-async function startScheduledPcmAudio() {
-  audioAbort = new AbortController(); audioContext = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 24000}); await audioContext.resume(); audioNextTime = audioContext.currentTime + 1.0; $("audioStatus").hidden = false; $("audioStatus").textContent = "Live AM audio connected using compatibility mode - use system/browser volume.";
-  const response = await fetch(`/api/audio.pcm?listen=${Date.now()}`, {signal: audioAbort.signal}); if (!response.ok || !response.body) throw new Error("Live PCM audio stream unavailable");
-  const reader = response.body.getReader(); let carry = new Uint8Array(0);
-  try { while (true) { const part = await reader.read(); if (part.done) break; const bytes = new Uint8Array(carry.length + part.value.length); bytes.set(carry); bytes.set(part.value, carry.length); const usable = bytes.length - (bytes.length % 2); if (!usable) { carry = bytes; continue; } const samples = new Float32Array(usable / 2); const view = new DataView(bytes.buffer, bytes.byteOffset, usable); for (let i = 0; i < samples.length; i++) samples[i] = view.getInt16(i * 2, true) / 32768; carry = bytes.slice(usable); queueAudioBuffer(samples); } if (audioPendingSamples) { const merged = new Float32Array(audioPendingSamples); let offset = 0; audioPending.forEach((part) => { merged.set(part, offset); offset += part.length; }); audioPending = []; audioPendingSamples = 0; scheduleAudioBuffer(merged); } } catch (error) { if (error.name !== "AbortError") throw error; }
-}
+async function startPcmAudio() { stopPcmAudio(); audioAbort = new AbortController(); audioContext = new (window.AudioContext || window.webkitAudioContext)({latencyHint: "interactive"}); const gain = audioContext.createGain(); gain.connect(audioContext.destination); await audioContext.resume(); if (audioContext.audioWorklet && window.AudioWorkletNode) { await audioContext.audioWorklet.addModule(`/airband-pcm-worklet.js?v=1`); audioNode = new AudioWorkletNode(audioContext, "airband-pcm-player", {numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [1], processorOptions: {inputRate: 24000, startSamples: 12000, maxSamples: 48000}}); audioNode.connect(gain); } else if (window.AirbandPcmRing) { audioRing = new window.AirbandPcmRing(audioContext, gain); } else { throw new Error("PCM browser audio is not ready"); } $("audioStatus").hidden = false; $("audioStatus").textContent = "Live PCM audio connected - use system/browser volume."; const response = await fetch(`/api/audio.pcm?listen=${Date.now()}`, {cache: "no-store", signal: audioAbort.signal}); if (!response.ok || !response.body) throw new Error("Live PCM stream unavailable"); audioReader = response.body.getReader(); try { while (true) { const result = await audioReader.read(); if (result.done) break; const bytes = new Uint8Array(audioPending.length + result.value.length); bytes.set(audioPending); bytes.set(result.value, audioPending.length); const usable = bytes.length - (bytes.length % 2); audioPending = bytes.slice(usable); if (!usable) continue; const samples = new Int16Array(bytes.buffer, bytes.byteOffset, usable / 2); const copy = new Int16Array(samples); if (audioNode) audioNode.port.postMessage({type: "pcm", samples: copy.buffer}, [copy.buffer]); else audioRing.enqueue(copy); } } catch (error) { if (error.name !== "AbortError") throw error; } }
 
 async function run(action) { try { await action(); } catch (error) { $("audioStatus").hidden = false; $("audioStatus").textContent = error.message; } }
 async function scan(nearby = scanScope === "nearby") { stopPcmAudio(); $("audioStatus").hidden = false; $("audioStatus").textContent = nearby ? "Scanning known FAA channels within the saved radius..." : "Scanning 118.000-136.975 MHz..."; const state = await api(nearby ? "/api/scan/nearby" : "/api/scan", {method: "POST", body: "{}"}); render(state); if (!state.running || !state.tuned) throw new Error(state.error || "No Airband candidate passed the SNR threshold."); await startPcmAudio(); }
