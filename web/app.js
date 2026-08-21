@@ -6,6 +6,9 @@ let audioContext = null;
 let audioNode = null;
 let audioQueue = [];
 let audioQueueOffset = 0;
+let audioQueuedSamples = 0;
+let audioPrimed = false;
+const AUDIO_PREBUFFER_SAMPLES = 16384;
 let scanScope = "full";
 let currentTunedFrequency = null;
 
@@ -59,16 +62,16 @@ function renderSettings(settings) {
 }
 
 function message(id, text, kind = "") { const target = $(id); target.textContent = text; target.className = `hint ${kind}`; }
-function stopPcmAudio() { if (audioAbort) audioAbort.abort(); audioAbort = null; if (audioNode) audioNode.disconnect(); audioNode = null; if (audioContext) audioContext.close(); audioContext = null; audioQueue = []; audioQueueOffset = 0; }
+function stopPcmAudio() { if (audioAbort) audioAbort.abort(); audioAbort = null; if (audioNode) audioNode.disconnect(); audioNode = null; if (audioContext) audioContext.close(); audioContext = null; audioQueue = []; audioQueueOffset = 0; audioQueuedSamples = 0; audioPrimed = false; }
 
 async function startPcmAudio() {
   stopPcmAudio(); audioAbort = new AbortController(); audioContext = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 24000}); await audioContext.resume();
   audioNode = audioContext.createScriptProcessor(4096, 0, 1);
-  audioNode.onaudioprocess = (event) => { const output = event.outputBuffer.getChannelData(0); output.fill(0); let written = 0; while (written < output.length && audioQueue.length) { const source = audioQueue[0]; const available = source.length - audioQueueOffset; const count = Math.min(available, output.length - written); output.set(source.subarray(audioQueueOffset, audioQueueOffset + count), written); written += count; audioQueueOffset += count; if (audioQueueOffset >= source.length) { audioQueue.shift(); audioQueueOffset = 0; } } };
+  audioNode.onaudioprocess = (event) => { const output = event.outputBuffer.getChannelData(0); output.fill(0); if (!audioPrimed) { if (audioQueuedSamples < AUDIO_PREBUFFER_SAMPLES) return; audioPrimed = true; } let written = 0; while (written < output.length && audioQueue.length) { const source = audioQueue[0]; const available = source.length - audioQueueOffset; const count = Math.min(available, output.length - written); output.set(source.subarray(audioQueueOffset, audioQueueOffset + count), written); written += count; audioQueueOffset += count; audioQueuedSamples -= count; if (audioQueueOffset >= source.length) { audioQueue.shift(); audioQueueOffset = 0; } } };
   audioNode.connect(audioContext.destination); $("audioStatus").hidden = false; $("audioStatus").textContent = "Live AM audio connected - use system/browser volume.";
   const response = await fetch(`/api/audio.pcm?listen=${Date.now()}`, {signal: audioAbort.signal}); if (!response.ok || !response.body) throw new Error("Live PCM audio stream unavailable");
   const reader = response.body.getReader(); let carry = new Uint8Array(0);
-  try { while (true) { const part = await reader.read(); if (part.done) break; const bytes = new Uint8Array(carry.length + part.value.length); bytes.set(carry); bytes.set(part.value, carry.length); const usable = bytes.length - (bytes.length % 2); if (!usable) { carry = bytes; continue; } const samples = new Float32Array(usable / 2); const view = new DataView(bytes.buffer, bytes.byteOffset, usable); for (let i = 0; i < samples.length; i++) samples[i] = view.getInt16(i * 2, true) / 32768; carry = bytes.slice(usable); audioQueue.push(samples); } } catch (error) { if (error.name !== "AbortError") throw error; }
+  try { while (true) { const part = await reader.read(); if (part.done) break; const bytes = new Uint8Array(carry.length + part.value.length); bytes.set(carry); bytes.set(part.value, carry.length); const usable = bytes.length - (bytes.length % 2); if (!usable) { carry = bytes; continue; } const samples = new Float32Array(usable / 2); const view = new DataView(bytes.buffer, bytes.byteOffset, usable); for (let i = 0; i < samples.length; i++) samples[i] = view.getInt16(i * 2, true) / 32768; carry = bytes.slice(usable); audioQueue.push(samples); audioQueuedSamples += samples.length; } } catch (error) { if (error.name !== "AbortError") throw error; }
 }
 
 async function run(action) { try { await action(); } catch (error) { $("audioStatus").hidden = false; $("audioStatus").textContent = error.message; } }

@@ -263,7 +263,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not process or not process.stdout: self._json({"ok": False, "error": "audio_not_running"}, 409); return
                 self.send_response(200); self.send_header("Content-Type", "application/octet-stream"); self.send_header("Transfer-Encoding", "chunked"); self.end_headers()
                 while STATE.running and process.poll() is None:
-                    chunk = process.stdout.read(4096)
+                    chunk = process.stdout.read(16384)
                     if not chunk: break
                     self._chunk(STATE.audio_chunk(chunk))
                 return
