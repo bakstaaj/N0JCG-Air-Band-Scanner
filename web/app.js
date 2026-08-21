@@ -6,6 +6,9 @@ let audioContext = null;
 let audioNode = null;
 let audioSources = [];
 let audioNextTime = 0;
+let audioPending = [];
+let audioPendingSamples = 0;
+const AUDIO_BUFFER_SAMPLES = 65536;
 let scanScope = "full";
 let currentTunedFrequency = null;
 
@@ -59,14 +62,18 @@ function renderSettings(settings) {
 }
 
 function message(id, text, kind = "") { const target = $(id); target.textContent = text; target.className = `hint ${kind}`; }
-function stopPcmAudio() { if (audioAbort) audioAbort.abort(); audioAbort = null; audioSources.forEach((source) => { try { source.stop(); } catch (_) {} }); audioSources = []; if (audioNode) audioNode.disconnect(); audioNode = null; if (audioContext) audioContext.close(); audioContext = null; audioNextTime = 0; }
+function stopPcmAudio() { if (audioAbort) audioAbort.abort(); audioAbort = null; audioSources.forEach((source) => { try { source.stop(); } catch (_) {} }); audioSources = []; audioPending = []; audioPendingSamples = 0; if (audioNode) audioNode.disconnect(); audioNode = null; if (audioContext) audioContext.close(); audioContext = null; audioNextTime = 0; }
+
+function scheduleAudioBuffer(samples) { if (!samples.length) return; const buffer = audioContext.createBuffer(1, samples.length, 24000); buffer.copyToChannel(samples, 0); const source = audioContext.createBufferSource(); source.buffer = buffer; source.connect(audioContext.destination); const startAt = Math.max(audioNextTime, audioContext.currentTime + 0.1); source.start(startAt); audioNextTime = startAt + buffer.duration; audioSources.push(source); source.onended = () => { audioSources = audioSources.filter((item) => item !== source); }; }
+
+function queueAudioBuffer(samples) { audioPending.push(samples); audioPendingSamples += samples.length; if (audioPendingSamples < AUDIO_BUFFER_SAMPLES) return; const merged = new Float32Array(audioPendingSamples); let offset = 0; audioPending.forEach((part) => { merged.set(part, offset); offset += part.length; }); audioPending = []; audioPendingSamples = 0; scheduleAudioBuffer(merged); }
 
 async function startPcmAudio() {
   stopPcmAudio(); audioAbort = new AbortController(); audioContext = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 24000}); await audioContext.resume();
   audioNode = null; audioNextTime = audioContext.currentTime + 1.0; $("audioStatus").hidden = false; $("audioStatus").textContent = "Live AM audio buffered - use system/browser volume.";
   const response = await fetch(`/api/audio.pcm?listen=${Date.now()}`, {signal: audioAbort.signal}); if (!response.ok || !response.body) throw new Error("Live PCM audio stream unavailable");
   const reader = response.body.getReader(); let carry = new Uint8Array(0);
-  try { while (true) { const part = await reader.read(); if (part.done) break; const bytes = new Uint8Array(carry.length + part.value.length); bytes.set(carry); bytes.set(part.value, carry.length); const usable = bytes.length - (bytes.length % 2); if (!usable) { carry = bytes; continue; } const samples = new Float32Array(usable / 2); const view = new DataView(bytes.buffer, bytes.byteOffset, usable); for (let i = 0; i < samples.length; i++) samples[i] = view.getInt16(i * 2, true) / 32768; carry = bytes.slice(usable); const buffer = audioContext.createBuffer(1, samples.length, 24000); buffer.copyToChannel(samples, 0); const source = audioContext.createBufferSource(); source.buffer = buffer; source.connect(audioContext.destination); const startAt = Math.max(audioNextTime, audioContext.currentTime + 0.1); source.start(startAt); audioNextTime = startAt + buffer.duration; audioSources.push(source); source.onended = () => { audioSources = audioSources.filter((item) => item !== source); }; } } catch (error) { if (error.name !== "AbortError") throw error; }
+  try { while (true) { const part = await reader.read(); if (part.done) break; const bytes = new Uint8Array(carry.length + part.value.length); bytes.set(carry); bytes.set(part.value, carry.length); const usable = bytes.length - (bytes.length % 2); if (!usable) { carry = bytes; continue; } const samples = new Float32Array(usable / 2); const view = new DataView(bytes.buffer, bytes.byteOffset, usable); for (let i = 0; i < samples.length; i++) samples[i] = view.getInt16(i * 2, true) / 32768; carry = bytes.slice(usable); queueAudioBuffer(samples); } if (audioPendingSamples) { const merged = new Float32Array(audioPendingSamples); let offset = 0; audioPending.forEach((part) => { merged.set(part, offset); offset += part.length; }); audioPending = []; audioPendingSamples = 0; scheduleAudioBuffer(merged); } } catch (error) { if (error.name !== "AbortError") throw error; }
 }
 
 async function run(action) { try { await action(); } catch (error) { $("audioStatus").hidden = false; $("audioStatus").textContent = error.message; } }
