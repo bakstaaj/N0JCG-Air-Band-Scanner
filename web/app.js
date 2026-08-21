@@ -8,7 +8,7 @@ let audioQueue = [];
 let audioQueueOffset = 0;
 let audioQueuedSamples = 0;
 let audioPrimed = false;
-const AUDIO_PREBUFFER_SAMPLES = 16384;
+const AUDIO_PREBUFFER_SAMPLES = 48000;
 let scanScope = "full";
 let currentTunedFrequency = null;
 
