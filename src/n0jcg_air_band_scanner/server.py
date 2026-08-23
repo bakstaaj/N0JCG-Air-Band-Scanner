@@ -27,6 +27,7 @@ OUTPUT_RATE = 24_000
 PCM_READ_BYTES = 4096
 AUDIO_CHUNK_BYTES = OUTPUT_RATE * 2 // 2
 SQUELCH_RELEASE_SAMPLES = OUTPUT_RATE * 3 // 20
+SQUELCH_SCAN_RELEASE_SECONDS = 7.0
 DEFAULT_LOCATION = {"label": "Cripple Creek receiver", "latitude": 38.7467, "longitude": -105.1783}
 DEFAULT_RADIUS_MILES = 25.0
 DEFAULT_ACTIVITY_THRESHOLD_RMS = 1300.0
@@ -54,6 +55,9 @@ class RadioState:
         self.audio_gate_gain = 0.0
         self.squelch_hold_samples = 0
         self.squelch_transitions = 0
+        self.squelch_quiet_since = None
+        self.scan_nearby = False
+        self.release_pending = False
 
     def _load_settings(self) -> None:
         try:
@@ -114,6 +118,8 @@ class RadioState:
         with self.lock:
             self._stop_audio()
             self.paused = False
+            self.scan_nearby = nearby
+            self.release_pending = False
             channels = self.channels(nearby)
             scan_channels = self.available_channels(nearby)
             if nearby and not channels:
@@ -135,6 +141,8 @@ class RadioState:
     def select(self, channel: dict) -> dict:
         with self.lock:
             self._stop_audio()
+            self.scan_nearby = False
+            self.release_pending = False
             self.tuned = channel
             self.running = True
             if not self.simulate: self._start_audio(channel)
@@ -162,6 +170,7 @@ class RadioState:
         self.squelch_hold_samples = 0
         self.squelch_transitions = 0
         self.squelch_open = False
+        self.squelch_quiet_since = None
         cmd = ["rtl_fm", "-d", REQUIRED_RTL_SERIAL, "-f", str(channel["frequency_hz"]), "-M", "am", "-s", str(INPUT_RATE), "-r", str(OUTPUT_RATE), "-g", str(self.settings["rf_gain_db"]), "-l", "0", "-p", "0", "-E", "offset", "-E", "dc"]
         try: self.audio_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         except OSError: self.audio_process = None
@@ -179,6 +188,7 @@ class RadioState:
         if usable <= 0: return chunk
         samples = array("h"); samples.frombytes(chunk[:usable])
         rms = math.sqrt(sum(sample * sample for sample in samples) / max(1, len(samples)))
+        rescan = False
         with self.lock:
             self.last_audio_rms = round(rms, 1)
             threshold = self.settings["squelch_rms"]
@@ -194,6 +204,13 @@ class RadioState:
                 self.squelch_open = False
             if self.squelch_open != was_open:
                 self.squelch_transitions += 1
+            if self.squelch_open:
+                self.squelch_quiet_since = None
+            elif self.squelch_quiet_since is None:
+                self.squelch_quiet_since = time.monotonic()
+            elif self.running and not self.release_pending and time.monotonic() - self.squelch_quiet_since >= SQUELCH_SCAN_RELEASE_SECONDS:
+                self.release_pending = True
+                rescan = True
             target_gain = 1.0 if self.squelch_open else 0.0
             gain = self.audio_gate_gain
             # A 100 ms envelope avoids a DC/AM step when squelch changes at
@@ -205,7 +222,17 @@ class RadioState:
                 elif gain > target_gain: gain = max(target_gain, gain - ramp_step)
                 output.append(max(-32768, min(32767, int(sample * gain))))
             self.audio_gate_gain = gain
+        if rescan:
+            threading.Thread(target=self._release_quiet_channel, name="airband-quiet-release", daemon=True).start()
         return output.tobytes() + chunk[usable:]
+
+    def _release_quiet_channel(self) -> None:
+        with self.lock:
+            if not self.running or self.paused:
+                self.release_pending = False
+                return
+            nearby = self.scan_nearby
+        self.scan(nearby)
 
     def update_location(self, payload: dict) -> dict:
         location = {"label": str(payload.get("label", self.settings["location"].get("label", "Receiver"))).strip() or "Receiver", "latitude": float(payload["latitude"]), "longitude": float(payload["longitude"])}
@@ -244,15 +271,17 @@ class RadioState:
     def settings_payload(self) -> dict:
         self._prune_controls()
         controls = {key: self.channel_control(int(key)) for key in self.settings["channel_controls"]}
-        return {"location": self.settings["location"], "radius_miles": self.settings["radius_miles"], "nearby_channel_count": len(self.channels(True)), "channel_controls": controls, "tuning": {"activity_threshold_rms": self.settings["activity_threshold_rms"], "rf_gain_db": self.settings["rf_gain_db"], "search_mode": self.settings["search_mode"], "spectrum_margin_db": self.settings["spectrum_margin_db"], "squelch_rms": self.settings["squelch_rms"], "squelch_open": self.squelch_open, "last_audio_rms": self.last_audio_rms, "squelch_transitions": self.squelch_transitions, "audio_profile": {"modulation": "am", "input_sample_rate_hz": INPUT_RATE, "sample_rate_hz": OUTPUT_RATE, "offset_tuning": True, "dc_block": True}}}
+        quiet_seconds = 0.0 if self.squelch_open or self.squelch_quiet_since is None else max(0.0, time.monotonic() - self.squelch_quiet_since)
+        return {"location": self.settings["location"], "radius_miles": self.settings["radius_miles"], "nearby_channel_count": len(self.channels(True)), "channel_controls": controls, "tuning": {"activity_threshold_rms": self.settings["activity_threshold_rms"], "rf_gain_db": self.settings["rf_gain_db"], "search_mode": self.settings["search_mode"], "spectrum_margin_db": self.settings["spectrum_margin_db"], "squelch_rms": self.settings["squelch_rms"], "squelch_open": self.squelch_open, "squelch_quiet_seconds": round(quiet_seconds, 1), "squelch_release_timeout_seconds": SQUELCH_SCAN_RELEASE_SECONDS, "last_audio_rms": self.last_audio_rms, "squelch_transitions": self.squelch_transitions, "audio_profile": {"modulation": "am", "input_sample_rate_hz": INPUT_RATE, "sample_rate_hz": OUTPUT_RATE, "offset_tuning": True, "dc_block": True}}}
 
     def stop(self) -> dict:
-        with self.lock: self.running = False; self.paused = False; self._stop_audio(); return self.snapshot()
+        with self.lock: self.running = False; self.paused = False; self.release_pending = False; self._stop_audio(); return self.snapshot()
 
     def pause_scan(self) -> dict:
         with self.lock:
             self.running = False
             self.paused = True
+            self.release_pending = False
             self._stop_audio()
             return self.snapshot()
 
