@@ -5,7 +5,9 @@ class AirbandPcmPlayer extends AudioWorkletProcessor {
     this.inputRate = Number(settings.inputRate) || 24000;
     this.startSamples = Number(settings.startSamples) || 12000;
     this.maxSamples = Number(settings.maxSamples) || 48000;
-    this.buffer = new Int16Array(65536);
+    // Keep the physical ring larger than maxSamples so burst delivery cannot
+    // overwrite unread samples before the queue limit is reached.
+    this.buffer = new Int16Array(131072);
     this.readIndex = 0; this.writeIndex = 0; this.count = 0; this.phase = 0; this.started = false;
     this.port.onmessage = (event) => {
       const message = event.data || {};
