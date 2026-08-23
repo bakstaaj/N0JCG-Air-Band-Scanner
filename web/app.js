@@ -38,9 +38,9 @@ function render(state) {
   const trial = state.trial || {};
   const registered = Boolean(state.registration?.registered || trial.registered);
   const trialExpired = !registered && Boolean(trial.expired);
-  $("trialStatus").textContent = registered ? "Registered" : trialExpired ? "Trial expired" : `Trial ${formatTrialTime(trial.remaining_seconds ?? 300)}`;
+  $("trialStatus").textContent = registered ? "Registered" : trialExpired ? "Restart Trial" : `Trial ${formatTrialTime(trial.remaining_seconds ?? 300)}`;
   $("trialStatus").className = `trial-badge${trialExpired ? " expired" : registered ? " registered" : ""}`;
-  $("trialRestart").hidden = registered || !trialExpired;
+  $("trialStatus").disabled = registered || !trialExpired;
   $("start").disabled = trialExpired;
   $("skip").disabled = trialExpired;
   $("tunedPause").disabled = trialExpired || tunedControl !== "active";
@@ -109,5 +109,5 @@ function updateAudioDiagnostics() { if (!audioRing) return; const diagnostics = 
 async function refresh() { try { const state = await api("/api/status"); render(state); if (audioGainNode && audioContext) { const open = Boolean(state.settings?.tuning?.squelch_open); audioGainNode.gain.setTargetAtTime(open ? 1 : 0, audioContext.currentTime, 0.02); } $("status").textContent = "READY"; $("status").className = "pill ok"; } catch (error) { $("status").textContent = "OFFLINE"; $("status").className = "pill warn"; } }
 
 $("menuToggle").addEventListener("click", openOperatorMenu); $("menuClose").addEventListener("click", closeOperatorMenu); $("menuBackdrop").addEventListener("click", closeOperatorMenu); document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeOperatorMenu(); }); $("scanFull").addEventListener("change", () => { scanScope = "full"; }); $("scanNearbyScope").addEventListener("change", () => { scanScope = "nearby"; }); $("start").addEventListener("click", () => run(toggleScan)); $("skip").addEventListener("click", () => run(skipCurrent)); $("tunedPause").addEventListener("click", () => run(() => updateTunedChannel("pause"))); $("tunedBlock").addEventListener("click", () => run(() => updateTunedChannel("block"))); $("clearAll").addEventListener("click", () => run(clearAllChannelControls)); $("find").addEventListener("click", () => run(findAirport)); $("saveLocation").addEventListener("click", () => run(saveLocation)); $("saveTuning").addEventListener("click", () => run(saveTuning)); $("squelchDown").addEventListener("click", () => run(() => adjustSquelch(-100))); $("squelchUp").addEventListener("click", () => run(() => adjustSquelch(100))); refresh(); loadNearby().catch(() => {}); setInterval(refresh, 1000); setInterval(updateAudioDiagnostics, 1000);
-$("trialRestart").addEventListener("click", () => run(restartTrial));
+$("trialStatus").addEventListener("click", () => run(restartTrial));
 moveSettingsIntoMenu();
