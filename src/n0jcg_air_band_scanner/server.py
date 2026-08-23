@@ -25,6 +25,7 @@ CATALOG = STATIC / "data" / "airband-channels.json"
 INPUT_RATE = 240_000
 OUTPUT_RATE = 24_000
 PCM_READ_BYTES = 4096
+AUDIO_CHUNK_BYTES = OUTPUT_RATE * 2 // 2
 SQUELCH_RELEASE_SAMPLES = OUTPUT_RATE * 3 // 20
 DEFAULT_LOCATION = {"label": "Cripple Creek receiver", "latitude": 38.7467, "longitude": -105.1783}
 DEFAULT_RADIUS_MILES = 25.0
@@ -303,6 +304,25 @@ class Handler(BaseHTTPRequestHandler):
                         chunk = process.stdout.read(PCM_READ_BYTES)
                         if not chunk: break
                         self._chunk(STATE.audio_chunk(chunk))
+                finally:
+                    STATE.audio_stream_lock.release()
+                return
+            if parsed.path == "/api/audio.chunk.wav":
+                process = STATE.audio_process
+                if not process or not process.stdout: self._json({"ok": False, "error": "audio_not_running"}, 409); return
+                if not STATE.audio_stream_lock.acquire(blocking=False): self._json({"ok": False, "error": "audio_listener_already_connected"}, 409); return
+                try:
+                    audio = bytearray()
+                    while len(audio) < AUDIO_CHUNK_BYTES and STATE.running and process.poll() is None:
+                        part = process.stdout.read(AUDIO_CHUNK_BYTES - len(audio))
+                        if not part: break
+                        audio.extend(part)
+                    if len(audio) < AUDIO_CHUNK_BYTES:
+                        self._json({"ok": False, "error": "audio_chunk_unavailable"}, 503); return
+                    audio = STATE.audio_chunk(bytes(audio))
+                    header = struct.pack("<4sI4s4sIHHIIHH4sI", b"RIFF", 36 + len(audio), b"WAVE", b"fmt ", 16, 1, 1, OUTPUT_RATE, OUTPUT_RATE * 2, 2, 16, b"data", len(audio))
+                    body = header + audio
+                    self.send_response(200); self.send_header("Content-Type", "audio/wav"); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
                 finally:
                     STATE.audio_stream_lock.release()
                 return
