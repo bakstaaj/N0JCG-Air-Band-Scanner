@@ -47,6 +47,7 @@ class RadioState:
         self.running = False
         self.paused = False
         self.audio_process: subprocess.Popen[bytes] | None = None
+        self.audio_stream_lock = threading.Lock()
         self.last_audio_rms = 0.0
         self.squelch_open = False
         self.audio_gate_gain = 0.0
@@ -279,21 +280,29 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/api/audio.pcm":
                 process = STATE.audio_process
                 if not process or not process.stdout: self._json({"ok": False, "error": "audio_not_running"}, 409); return
-                self.send_response(200); self.send_header("Content-Type", "application/octet-stream"); self.send_header("Transfer-Encoding", "chunked"); self.end_headers()
-                while STATE.running and process.poll() is None:
-                    chunk = process.stdout.read(PCM_READ_BYTES)
-                    if not chunk: break
-                    self._chunk(STATE.audio_chunk(chunk))
+                if not STATE.audio_stream_lock.acquire(blocking=False): self._json({"ok": False, "error": "audio_listener_already_connected"}, 409); return
+                try:
+                    self.send_response(200); self.send_header("Content-Type", "application/octet-stream"); self.send_header("Transfer-Encoding", "chunked"); self.end_headers()
+                    while STATE.running and process.poll() is None:
+                        chunk = process.stdout.read(PCM_READ_BYTES)
+                        if not chunk: break
+                        self._chunk(STATE.audio_chunk(chunk))
+                finally:
+                    STATE.audio_stream_lock.release()
                 return
             if parsed.path == "/api/audio.wav":
                 process = STATE.audio_process
                 if not process or not process.stdout: self._json({"ok": False, "error": "audio_not_running"}, 409); return
-                header = struct.pack("<4sI4s4sIHHIIHH4sI", b"RIFF", 0xFFFFFFFF, b"WAVE", b"fmt ", 16, 1, 1, OUTPUT_RATE, OUTPUT_RATE * 2, 2, 16, b"data", 0xFFFFFFFF)
-                self.send_response(200); self.send_header("Content-Type", "audio/wav"); self.send_header("Transfer-Encoding", "chunked"); self.end_headers(); self._chunk(header)
-                while STATE.running and process.poll() is None:
-                    chunk = process.stdout.read(PCM_READ_BYTES)
-                    if not chunk: break
-                    self._chunk(STATE.audio_chunk(chunk))
+                if not STATE.audio_stream_lock.acquire(blocking=False): self._json({"ok": False, "error": "audio_listener_already_connected"}, 409); return
+                try:
+                    header = struct.pack("<4sI4s4sIHHIIHH4sI", b"RIFF", 0xFFFFFFFF, b"WAVE", b"fmt ", 16, 1, 1, OUTPUT_RATE, OUTPUT_RATE * 2, 2, 16, b"data", 0xFFFFFFFF)
+                    self.send_response(200); self.send_header("Content-Type", "audio/wav"); self.send_header("Transfer-Encoding", "chunked"); self.end_headers(); self._chunk(header)
+                    while STATE.running and process.poll() is None:
+                        chunk = process.stdout.read(PCM_READ_BYTES)
+                        if not chunk: break
+                        self._chunk(STATE.audio_chunk(chunk))
+                finally:
+                    STATE.audio_stream_lock.release()
                 return
             if parsed.path == "/": self._serve("index.html"); return
             self._serve(parsed.path.lstrip("/"))
