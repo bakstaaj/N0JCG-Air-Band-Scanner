@@ -16,7 +16,7 @@ from urllib.parse import parse_qs, urlparse
 from . import PRODUCT_NAME, REQUIRED_RTL_SERIAL, VERSION
 from .catalog import AirbandCatalog
 from .fft_scan import FftPoint, MIN_VALID_SNR_DB, score_channels, simulated_spectrum
-from .registration import registration_status
+from .registration import activate as activate_license, registration_status
 
 ROOT = Path(__file__).resolve().parents[2]
 STATIC = ROOT / "web"
@@ -98,6 +98,12 @@ class RadioState:
 
     def registration(self) -> dict:
         return registration_status(RUNTIME / "registration.json")
+
+    def activate_license(self, payload: dict) -> dict:
+        with self.lock:
+            result = activate_license(RUNTIME / "registration.json", str(payload.get("license_serial", "")), str(payload.get("email", "")))
+            self.trial_expired = False
+            return self.snapshot({"registration": result})
 
     def trial_status(self) -> dict:
         if self.registration().get("registered"):
@@ -449,6 +455,10 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/pause": self._json(STATE.pause_scan()); return
             if path == "/api/stop": self._json(STATE.stop()); return
             if path == "/api/trial/restart": self._json(STATE.restart_trial()); return
+            if path in ("/api/license/activate", "/api/registration/activate"):
+                try: self._json(STATE.activate_license(self._payload()))
+                except Exception as error: self._json({"ok": False, "error": str(error), "registration": STATE.registration()}, 400)
+                return
             if path == "/api/select":
                 payload = self._payload(); match = next((item for item in STATE.catalog.channels() if int(item["frequency_hz"]) == int(payload.get("frequency_hz", 0))), None)
                 if not match: self._json({"ok": False, "error": "channel_not_found"}, 404); return
