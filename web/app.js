@@ -23,6 +23,7 @@ async function api(path, options = {}) {
 
 function render(state) {
   $("serial").textContent = state.rtl_serial || "-";
+  renderRegistration(state.registration);
   $("tuned").textContent = state.tuned ? `${state.tuned.serviced_facility || "Manual"} ${state.tuned.frequency_use || ""}` : "Not tuned";
   $("frequency").textContent = state.tuned ? fmt(state.tuned.frequency_hz) : "-";
   currentTunedFrequency = state.tuned ? Number(state.tuned.frequency_hz) : null;
@@ -49,6 +50,8 @@ function render(state) {
   renderSettings(state.settings);
   bindChannelControls();
 }
+
+function renderRegistration(registration) { if (!registration) return; $("registrationProduct").textContent = registration.product_name || "Air Band Scanner"; $("registrationProductId").textContent = registration.product_id || "n0jcg-air-band-scanner"; $("registrationLicensePrefix").textContent = registration.license_prefix || "N0JCG-ABS-"; $("registrationInstallationId").textContent = registration.installation_id || "—"; $("registrationMode").textContent = registration.registered ? "REGISTERED" : "TRIAL"; }
 
 function formatTrialTime(seconds) { const remaining = Math.max(0, Number(seconds) || 0); const minutes = Math.floor(remaining / 60); const secondsPart = remaining % 60; return `${String(minutes).padStart(2, "0")}:${String(secondsPart).padStart(2, "0")}`; }
 
@@ -88,7 +91,7 @@ async function startPcmAudio() { await ensurePcmPlayer(); if (audioAbort) audioA
 async function run(action) { try { await action(); } catch (error) { $("audioStatus").hidden = false; $("audioStatus").textContent = error.message; } }
 function openOperatorMenu() { const menu = $("operatorMenu"); menu.hidden = false; $("menuBackdrop").hidden = false; requestAnimationFrame(() => menu.classList.add("open")); $("menuToggle").setAttribute("aria-expanded", "true"); document.body.classList.add("menu-open"); }
 function closeOperatorMenu() { const menu = $("operatorMenu"); menu.classList.remove("open"); $("menuBackdrop").hidden = true; $("menuToggle").setAttribute("aria-expanded", "false"); document.body.classList.remove("menu-open"); window.setTimeout(() => { if (!menu.classList.contains("open")) menu.hidden = true; }, 200); }
-function moveSettingsIntoMenu() { const settings = document.querySelector(".control-grid"); const menu = $("operatorMenu"); const channelTools = menu?.querySelector(".grid"); if (settings && menu && channelTools) menu.insertBefore(settings, channelTools); }
+function moveSettingsIntoMenu() { const menu = $("operatorMenu"); const channelTools = menu?.querySelector(".grid"); if (!menu || !channelTools) return; const settings = document.querySelector(".control-grid"); const registration = $("registrationSettings"); if (settings) menu.insertBefore(settings, channelTools); if (registration) menu.insertBefore(registration, channelTools); }
 async function scan(nearby = scanScope === "nearby") { await ensurePcmPlayer(); if (audioReader) { await audioReader.cancel().catch(() => {}); audioReader = null; } $("audioStatus").hidden = false; $("audioStatus").textContent = nearby ? "Scanning known FAA channels within the saved radius..." : "Scanning 118.000-136.975 MHz..."; const state = await api(nearby ? "/api/scan/nearby" : "/api/scan", {method: "POST", body: "{}"}); render(state); if (!state.running || !state.tuned) throw new Error(state.error || "No Airband candidate passed the SNR threshold."); await startPcmAudio(); }
 async function skipCurrent() { if (!currentTunedFrequency) throw new Error("There is no currently locked channel to skip."); await updateChannelControl("pause", currentTunedFrequency); await scan(); }
 async function stop() { stopPcmAudio(); render(await api("/api/stop", {method: "POST", body: "{}"})); $("audioStatus").hidden = false; $("audioStatus").textContent = "Audio stopped."; }

@@ -6,7 +6,7 @@ import platform
 import secrets
 from pathlib import Path
 
-from . import PRODUCT_ID
+from . import LICENSE_PREFIX, PRODUCT_ID, PRODUCT_NAME
 
 
 def registration_status(path: Path) -> dict[str, object]:
@@ -20,4 +20,4 @@ def registration_status(path: Path) -> dict[str, object]:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({"product_id": PRODUCT_ID, "installation_id": installation_id}, indent=2) + "\n", encoding="utf-8")
     registered = bool(saved.get("license_token"))
-    return {"product_id": PRODUCT_ID, "installation_id": installation_id, "registered": registered, "mode": "registered" if registered else "trial"}
+    return {"product_name": PRODUCT_NAME, "product_id": PRODUCT_ID, "license_prefix": LICENSE_PREFIX, "installation_id": installation_id, "registered": registered, "mode": "registered" if registered else "trial"}

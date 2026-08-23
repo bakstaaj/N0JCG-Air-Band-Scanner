@@ -34,6 +34,13 @@ def test_product_contract():
     assert json.loads((ROOT / "web/data/airband-channels.json").read_text())["schema_version"] == 1
 
 
+def test_registration_metadata(tmp_path):
+    metadata = server.registration_status(tmp_path / "registration.json")
+    assert metadata["product_name"] == "N0JCG Air Band Scanner"
+    assert metadata["product_id"] == "n0jcg-air-band-scanner"
+    assert metadata["license_prefix"] == "N0JCG-ABS-"
+
+
 def test_channel_pause_and_block_exclude_from_scan(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "RUNTIME", tmp_path / "runtime")
     state = server.RadioState(simulate=True)
