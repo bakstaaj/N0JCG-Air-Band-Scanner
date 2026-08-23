@@ -10,3 +10,5 @@ header{padding-top:18px;padding-bottom:12px}.hero{padding:16px;margin-top:12px;m
 @media(max-width:850px){.operator-menu .grid{grid-template-columns:1fr}}
 .operator-menu .control-grid{grid-template-columns:1fr;margin-bottom:16px}
 #audioStatus{display:none!important}
+.squelch-main-controls{display:flex;align-items:center;gap:5px;white-space:nowrap}.squelch-main-controls .label{display:inline;color:#9defff;font-size:.68rem}.squelch-main-controls button{padding:4px 8px;font-size:.9rem}.squelch-main-controls strong{min-width:62px;text-align:center;color:#fff;font-size:.82rem}.squelch-main-controls .hint{font-size:.72rem;color:#c8d5e5}
+@media(max-width:720px){.squelch-main-controls{flex-wrap:wrap}}
