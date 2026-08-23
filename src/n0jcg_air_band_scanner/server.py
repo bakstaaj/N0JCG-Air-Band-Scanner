@@ -3,12 +3,14 @@ from __future__ import annotations
 import argparse
 from array import array
 import csv
+import io
 import json
 import math
 import subprocess
 import struct
 import threading
 import time
+import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -23,7 +25,7 @@ STATIC = ROOT / "web"
 RUNTIME = ROOT / "runtime"
 CATALOG = STATIC / "data" / "airband-channels.json"
 INPUT_RATE = 240_000
-OUTPUT_RATE = 8_000
+OUTPUT_RATE = 24_000
 PCM_READ_BYTES = 4096
 SQUELCH_RELEASE_SAMPLES = OUTPUT_RATE * 3 // 20
 DEFAULT_LOCATION = {"label": "Cripple Creek receiver", "latitude": 38.7467, "longitude": -105.1783}
@@ -206,6 +208,12 @@ class RadioState:
             self.audio_gate_gain = gain
         return output.tobytes() + chunk[usable:]
 
+    def audio_wav_chunk(self, chunk: bytes) -> bytes:
+        output = io.BytesIO()
+        with wave.open(output, "wb") as wav_file:
+            wav_file.setnchannels(1); wav_file.setsampwidth(2); wav_file.setframerate(OUTPUT_RATE); wav_file.writeframes(chunk)
+        return output.getvalue()
+
     def update_location(self, payload: dict) -> dict:
         location = {"label": str(payload.get("label", self.settings["location"].get("label", "Receiver"))).strip() or "Receiver", "latitude": float(payload["latitude"]), "longitude": float(payload["longitude"])}
         if not -90 <= location["latitude"] <= 90 or not -180 <= location["longitude"] <= 180: raise ValueError("Latitude or longitude is out of range.")
@@ -297,12 +305,11 @@ class Handler(BaseHTTPRequestHandler):
                 if not process or not process.stdout: self._json({"ok": False, "error": "audio_not_running"}, 409); return
                 if not STATE.audio_stream_lock.acquire(blocking=False): self._json({"ok": False, "error": "audio_listener_already_connected"}, 409); return
                 try:
-                    header = struct.pack("<4sI4s4sIHHIIHH4sI", b"RIFF", 0xFFFFFFFF, b"WAVE", b"fmt ", 16, 1, 1, OUTPUT_RATE, OUTPUT_RATE * 2, 2, 16, b"data", 0xFFFFFFFF)
-                    self.send_response(200); self.send_header("Content-Type", "audio/wav"); self.send_header("Transfer-Encoding", "chunked"); self.end_headers(); self._chunk(header)
-                    while STATE.running and process.poll() is None:
-                        chunk = process.stdout.read(PCM_READ_BYTES)
-                        if not chunk: break
-                        self._chunk(STATE.audio_chunk(chunk))
+                    chunk = process.stdout.read(OUTPUT_RATE * 2 // 2)
+                    if not chunk: self._json({"ok": False, "error": "audio_ended"}, 409); return
+                    chunk = STATE.audio_chunk(chunk)
+                    content = STATE.audio_wav_chunk(chunk)
+                    self.send_response(200); self.send_header("Content-Type", "audio/wav"); self.send_header("Cache-Control", "no-store"); self.send_header("X-Source-Samples", str(len(chunk) // 2)); self.send_header("Content-Length", str(len(content))); self.end_headers(); self.wfile.write(content)
                 finally:
                     STATE.audio_stream_lock.release()
                 return
