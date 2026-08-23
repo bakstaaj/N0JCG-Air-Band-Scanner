@@ -255,17 +255,24 @@ class RadioState:
     def update_channel_control(self, payload: dict) -> dict:
         action = str(payload.get("action", "")).lower()
         if action == "clear_all":
-            self.settings["channel_controls"].clear()
-            self._save_settings()
+            with self.lock:
+                self.settings["channel_controls"].clear()
+                self._save_settings()
             return self.settings_payload()
         frequency_hz = int(payload["frequency_hz"])
         if not any(int(item.get("frequency_hz", 0)) == frequency_hz for item in self.catalog.channels()): raise ValueError("Channel frequency was not found in the FAA catalog.")
         key = str(frequency_hz)
-        if action == "pause": self.settings["channel_controls"][key] = {"mode": "pause", "until": time.time() + 600}
-        elif action == "block": self.settings["channel_controls"][key] = {"mode": "block"}
-        elif action in ("clear", "unblock"): self.settings["channel_controls"].pop(key, None)
-        else: raise ValueError("Use pause, block, clear, or unblock.")
-        self._save_settings()
+        release_current = False
+        with self.lock:
+            if action == "pause": self.settings["channel_controls"][key] = {"mode": "pause", "until": time.time() + 600}
+            elif action == "block": self.settings["channel_controls"][key] = {"mode": "block"}
+            elif action in ("clear", "unblock"): self.settings["channel_controls"].pop(key, None)
+            else: raise ValueError("Use pause, block, clear, or unblock.")
+            self._save_settings()
+            release_current = action in ("pause", "block") and self.running and self.tuned is not None and int(self.tuned.get("frequency_hz", 0)) == frequency_hz
+            if release_current: self.release_pending = True
+        if release_current:
+            threading.Thread(target=self._release_quiet_channel, name="airband-operator-release", daemon=True).start()
         return self.settings_payload()
 
     def settings_payload(self) -> dict:
