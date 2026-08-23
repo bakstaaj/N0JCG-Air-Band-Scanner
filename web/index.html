@@ -4,7 +4,7 @@
 <body>
 <header><div class="brand-lockup"><img class="brand-logo" src="/assets/N0JCG_Header_Dark_Approved.png" alt="N0JCG Open Radio Platform"><span class="brand-divider" aria-hidden="true"></span><h1>Air Band Scanner</h1></div><span id="status" class="pill warn">CONNECTING</span></header>
 <main>
-  <section class="hero"><div><span class="label">TUNED CHANNEL</span><strong id="tuned">Not tuned</strong><span id="frequency">-</span></div><div><span class="label">SIGNAL</span><strong id="snr">-</strong><span id="scanState">Stopped</span></div><div class="hero-actions"><fieldset class="scan-scope"><legend>SCAN SCOPE</legend><label><input id="scanFull" name="scanScope" type="radio" value="full" checked> Full Airband</label><label><input id="scanNearbyScope" name="scanScope" type="radio" value="nearby"> Nearby FAA</label></fieldset><div class="scan-buttons"><button id="start" type="button">Start</button><button id="skip" type="button" class="secondary">Skip</button></div><div id="tunedControls" class="tuned-controls" hidden><span class="label">CURRENT CHANNEL</span><button id="tunedPause" type="button" class="secondary">Pause 10 min</button><button id="tunedBlock" type="button" class="secondary">Block</button><button id="clearAll" type="button" class="secondary">Clear all</button></div></div></section>
+  <section class="hero"><div><span class="label">TUNED CHANNEL</span><strong id="tuned">Not tuned</strong><span id="frequency">-</span></div><div><span class="label">SIGNAL</span><strong id="snr">-</strong><span id="scanState">Stopped</span></div><div class="hero-actions"><fieldset class="scan-scope"><legend>SCAN SCOPE</legend><label><input id="scanFull" name="scanScope" type="radio" value="full" checked> Full Airband</label><label><input id="scanNearbyScope" name="scanScope" type="radio" value="nearby"> Nearby FAA</label></fieldset><div class="scan-buttons"><button id="start" type="button">Start</button><button id="skip" type="button" class="secondary">Skip</button></div><div id="tunedControls" class="tuned-controls" hidden><span class="label">CURRENT CHANNEL</span><span id="tunedControlState" class="hint">ACTIVE</span><button id="tunedPause" type="button" class="secondary">Pause 10 min</button><button id="tunedBlock" type="button" class="secondary">Block</button><button id="clearAll" type="button" class="secondary">Clear all</button></div></div></section>
   <p id="audioStatus" class="notice" hidden role="status"></p>
   <audio id="audioPlayer" preload="none" hidden></audio>
   <section class="control-grid">
@@ -16,5 +16,5 @@
   <section><div class="section-head"><h2>Nearby FAA channels</h2><span id="nearbySummary" class="hint">Load channels from the saved radius.</span></div><div id="nearbyChannels" class="nearby-list">No nearby channels loaded.</div></section>
 </main>
 <footer>N0JCG Air Band Scanner · <span id="serial">00000118</span> · Receive-only; this product does not transmit.</footer>
-<script src="/airband-pcm-ring.js?v=8"></script><script src="/app.js?v=airband-controls-v23"></script>
+<script src="/airband-pcm-ring.js?v=8"></script><script src="/app.js?v=airband-controls-v24"></script>
 </body></html>

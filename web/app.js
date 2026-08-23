@@ -27,6 +27,10 @@ function render(state) {
   $("frequency").textContent = state.tuned ? fmt(state.tuned.frequency_hz) : "-";
   currentTunedFrequency = state.tuned ? Number(state.tuned.frequency_hz) : null;
   $("tunedControls").hidden = !currentTunedFrequency;
+  const tunedControl = state.tuned?.scan_control?.mode || "active";
+  $("tunedControlState").textContent = tunedControl === "pause" ? "PAUSED 10 MIN" : tunedControl === "block" ? "BLOCKED" : "ACTIVE";
+  $("tunedPause").disabled = tunedControl !== "active";
+  $("tunedBlock").disabled = tunedControl !== "active";
   $("snr").textContent = state.candidates?.[0] ? `${state.candidates[0].snr_db.toFixed(1)} dB SNR` : "-";
   $("scanState").textContent = state.paused ? "Paused" : state.running ? "Scanning / audio live" : "Stopped";
   radioRunning = Boolean(state.running);
@@ -81,9 +85,9 @@ async function loadNearby() { const data = await api("/api/nearby"); window.chan
 async function saveLocation() { const result = await api("/api/settings/location", {method: "POST", body: JSON.stringify({label: $("locationLabel").value, latitude: $("latitude").value, longitude: $("longitude").value, radius_miles: $("radius").value})}); renderSettings(result); message("locationMessage", `Saved ${result.location.label}; ${result.nearby_channel_count} FAA channels found.`, "good"); await loadNearby(); }
 async function saveTuning() { const result = await api("/api/settings/tuning", {method: "POST", body: JSON.stringify({rf_gain_db: $("rfGain").value, search_mode: $("searchMode").value, spectrum_margin_db: $("spectrumMargin").value, activity_threshold_rms: $("activityThreshold").value})}); renderSettings(result); message("tuningMessage", "Airband tuning settings saved.", "good"); }
 async function adjustSquelch(delta) { const result = await api("/api/settings/squelch", {method: "POST", body: JSON.stringify({delta_rms: delta})}); renderSettings(result); }
-async function updateChannelControl(action, frequencyHz) { const result = await api("/api/channel-control", {method: "POST", body: JSON.stringify({action, frequency_hz: frequencyHz})}); renderSettings(result); message("channelMessage", action === "pause" ? "Channel paused for 10 minutes." : action === "block" ? "Channel blocked until cleared." : "Channel scan control cleared.", "good"); await loadNearby(); }
-async function updateTunedChannel(action) { if (!currentTunedFrequency) return; await updateChannelControl(action, currentTunedFrequency); }
-async function clearAllChannelControls() { const result = await api("/api/channel-control", {method: "POST", body: JSON.stringify({action: "clear_all"})}); renderSettings(result); message("channelMessage", "All paused and blocked channels were cleared.", "good"); await loadNearby(); }
+async function updateChannelControl(action, frequencyHz) { const result = await api("/api/channel-control", {method: "POST", body: JSON.stringify({action, frequency_hz: frequencyHz})}); renderSettings(result); message("channelMessage", action === "pause" ? "Channel paused for 10 minutes." : action === "block" ? "Channel blocked until cleared." : "Channel scan control cleared.", "good"); await loadNearby(); if (currentTunedFrequency) render(await api("/api/status")); }
+async function updateTunedChannel(action) { if (!currentTunedFrequency) { throw new Error("There is no tuned channel to control."); } await updateChannelControl(action, currentTunedFrequency); }
+async function clearAllChannelControls() { const result = await api("/api/channel-control", {method: "POST", body: JSON.stringify({action: "clear_all"})}); renderSettings(result); message("channelMessage", "All paused and blocked channels were cleared.", "good"); await loadNearby(); if (currentTunedFrequency) render(await api("/api/status")); }
 function bindChannelControls() { document.querySelectorAll("[data-channel-action]").forEach((button) => button.addEventListener("click", () => run(() => updateChannelControl(button.dataset.channelAction, Number(button.dataset.channelFrequency))))); }
 function updateAudioDiagnostics() { if (!audioRing) return; const diagnostics = audioRing.diagnostics(); window.__airbandAudioDiagnostics = diagnostics; if (diagnostics.underruns > 0) $("audioStatus").textContent = `PCM audio: ${diagnostics.underruns} buffer underruns; ${diagnostics.queued_seconds.toFixed(2)} s queued.`; }
 async function refresh() { try { const state = await api("/api/status"); render(state); if (audioGainNode && audioContext) { const open = Boolean(state.settings?.tuning?.squelch_open); audioGainNode.gain.setTargetAtTime(open ? 1 : 0, audioContext.currentTime, 0.02); } $("status").textContent = "READY"; $("status").className = "pill ok"; } catch (error) { $("status").textContent = "OFFLINE"; $("status").className = "pill warn"; } }
