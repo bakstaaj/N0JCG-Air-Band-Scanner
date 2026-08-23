@@ -2,7 +2,9 @@
 
 Standalone, receive-only civil Airband scanner for RTL-SDR serial `00000118`. It uses FFT-directed candidate scoring across the configured 118.000–136.975 MHz Airband range, tunes the strongest valid AM channel, streams browser PCM audio, and supports airport-code channel selection.
 
-This repository is independent of N0JCG Scanner and N0JCG Air Traffic Center. It reuses their proven serial ownership, AM audio, FAA catalog, and operator UI conventions without sharing runtime state or service ownership.
+This repository is independent of N0JCG Scanner and N0JCG Air Traffic Center. It reuses their proven serial ownership, AM audio, finite WAV browser playback, FAA catalog, and operator UI conventions without sharing runtime state or service ownership.
+
+The reusable RF and audio settings are documented in [AIRBAND_AUDIO_RF_TEMPLATE.md](docs/AIRBAND_AUDIO_RF_TEMPLATE.md). The customer-facing operating instructions are in [N0JCG_AIR_BAND_SCANNER_USER_GUIDE.md](docs/N0JCG_AIR_BAND_SCANNER_USER_GUIDE.md).
 
 ## Development
 
