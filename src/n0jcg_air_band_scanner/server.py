@@ -195,7 +195,9 @@ class RadioState:
                 self.squelch_transitions += 1
             target_gain = 1.0 if self.squelch_open else 0.0
             gain = self.audio_gate_gain
-            ramp_step = 1.0 / max(1, OUTPUT_RATE // 100)
+            # A 100 ms envelope avoids a DC/AM step when squelch changes at
+            # an arbitrary sample boundary.
+            ramp_step = 1.0 / max(1, OUTPUT_RATE // 10)
             output = array("h")
             for sample in samples:
                 if gain < target_gain: gain = min(target_gain, gain + ramp_step)

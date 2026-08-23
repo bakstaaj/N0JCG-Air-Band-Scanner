@@ -60,4 +60,4 @@ def test_squelch_gate_fades_without_hard_chunk_edges(tmp_path, monkeypatch):
     assert 0 < gated[0] < gated[100] < gated[-1] == 12000
     silence = array("h")
     silence.frombytes(state.audio_chunk(array("h", [500] * 4096).tobytes()))
-    assert silence[0] > silence[1] > silence[10] >= silence[-1] == 0
+    assert silence[0] > silence[100] > silence[1000] >= silence[-1] == 0
