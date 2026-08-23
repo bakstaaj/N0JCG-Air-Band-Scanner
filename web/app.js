@@ -28,7 +28,6 @@ function render(state) {
   currentTunedFrequency = state.tuned ? Number(state.tuned.frequency_hz) : null;
   $("tunedControls").hidden = !currentTunedFrequency;
   const tunedControl = state.tuned?.scan_control?.mode || "active";
-  $("tunedControlState").textContent = tunedControl === "pause" ? "PAUSED 10 MIN" : tunedControl === "block" ? "BLOCKED" : "ACTIVE";
   $("tunedPause").disabled = tunedControl !== "active";
   $("tunedBlock").disabled = tunedControl !== "active";
   $("snr").textContent = state.candidates?.[0] ? `${state.candidates[0].snr_db.toFixed(1)} dB SNR` : "-";
