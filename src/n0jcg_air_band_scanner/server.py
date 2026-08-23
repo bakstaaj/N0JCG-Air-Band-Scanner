@@ -24,6 +24,8 @@ RUNTIME = ROOT / "runtime"
 CATALOG = STATIC / "data" / "airband-channels.json"
 INPUT_RATE = 240_000
 OUTPUT_RATE = 24_000
+PCM_READ_BYTES = 4096
+SQUELCH_RELEASE_SAMPLES = OUTPUT_RATE * 3 // 20
 DEFAULT_LOCATION = {"label": "Cripple Creek receiver", "latitude": 38.7467, "longitude": -105.1783}
 DEFAULT_RADIUS_MILES = 25.0
 DEFAULT_ACTIVITY_THRESHOLD_RMS = 1300.0
@@ -48,6 +50,8 @@ class RadioState:
         self.last_audio_rms = 0.0
         self.squelch_open = False
         self.audio_gate_gain = 0.0
+        self.squelch_hold_samples = 0
+        self.squelch_transitions = 0
 
     def _load_settings(self) -> None:
         try:
@@ -153,6 +157,9 @@ class RadioState:
 
     def _start_audio(self, channel: dict) -> None:
         self.audio_gate_gain = 0.0
+        self.squelch_hold_samples = 0
+        self.squelch_transitions = 0
+        self.squelch_open = False
         cmd = ["rtl_fm", "-d", REQUIRED_RTL_SERIAL, "-f", str(channel["frequency_hz"]), "-M", "am", "-s", str(INPUT_RATE), "-r", str(OUTPUT_RATE), "-g", str(self.settings["rf_gain_db"]), "-l", "0", "-p", "0", "-E", "offset", "-E", "dc"]
         try: self.audio_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         except OSError: self.audio_process = None
@@ -174,7 +181,17 @@ class RadioState:
             self.last_audio_rms = round(rms, 1)
             threshold = self.settings["squelch_rms"]
             close_threshold = threshold * 0.75
-            self.squelch_open = threshold <= 0 or rms >= (close_threshold if self.squelch_open else threshold)
+            was_open = self.squelch_open
+            if threshold <= 0 or rms >= (close_threshold if was_open else threshold):
+                self.squelch_open = True
+                self.squelch_hold_samples = SQUELCH_RELEASE_SAMPLES
+            elif was_open and self.squelch_hold_samples > 0:
+                self.squelch_hold_samples = max(0, self.squelch_hold_samples - len(samples))
+                self.squelch_open = self.squelch_hold_samples > 0
+            else:
+                self.squelch_open = False
+            if self.squelch_open != was_open:
+                self.squelch_transitions += 1
             target_gain = 1.0 if self.squelch_open else 0.0
             gain = self.audio_gate_gain
             ramp_step = 1.0 / max(1, OUTPUT_RATE // 100)
@@ -223,7 +240,7 @@ class RadioState:
     def settings_payload(self) -> dict:
         self._prune_controls()
         controls = {key: self.channel_control(int(key)) for key in self.settings["channel_controls"]}
-        return {"location": self.settings["location"], "radius_miles": self.settings["radius_miles"], "nearby_channel_count": len(self.channels(True)), "channel_controls": controls, "tuning": {"activity_threshold_rms": self.settings["activity_threshold_rms"], "rf_gain_db": self.settings["rf_gain_db"], "search_mode": self.settings["search_mode"], "spectrum_margin_db": self.settings["spectrum_margin_db"], "squelch_rms": self.settings["squelch_rms"], "squelch_open": self.squelch_open, "last_audio_rms": self.last_audio_rms, "audio_profile": {"modulation": "am", "input_sample_rate_hz": INPUT_RATE, "sample_rate_hz": OUTPUT_RATE, "offset_tuning": True, "dc_block": True}}}
+        return {"location": self.settings["location"], "radius_miles": self.settings["radius_miles"], "nearby_channel_count": len(self.channels(True)), "channel_controls": controls, "tuning": {"activity_threshold_rms": self.settings["activity_threshold_rms"], "rf_gain_db": self.settings["rf_gain_db"], "search_mode": self.settings["search_mode"], "spectrum_margin_db": self.settings["spectrum_margin_db"], "squelch_rms": self.settings["squelch_rms"], "squelch_open": self.squelch_open, "last_audio_rms": self.last_audio_rms, "squelch_transitions": self.squelch_transitions, "audio_profile": {"modulation": "am", "input_sample_rate_hz": INPUT_RATE, "sample_rate_hz": OUTPUT_RATE, "offset_tuning": True, "dc_block": True}}}
 
     def stop(self) -> dict:
         with self.lock: self.running = False; self.paused = False; self._stop_audio(); return self.snapshot()
@@ -264,7 +281,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not process or not process.stdout: self._json({"ok": False, "error": "audio_not_running"}, 409); return
                 self.send_response(200); self.send_header("Content-Type", "application/octet-stream"); self.send_header("Transfer-Encoding", "chunked"); self.end_headers()
                 while STATE.running and process.poll() is None:
-                    chunk = process.stdout.read(32768)
+                    chunk = process.stdout.read(PCM_READ_BYTES)
                     if not chunk: break
                     self._chunk(STATE.audio_chunk(chunk))
                 return
@@ -274,7 +291,7 @@ class Handler(BaseHTTPRequestHandler):
                 header = struct.pack("<4sI4s4sIHHIIHH4sI", b"RIFF", 0xFFFFFFFF, b"WAVE", b"fmt ", 16, 1, 1, OUTPUT_RATE, OUTPUT_RATE * 2, 2, 16, b"data", 0xFFFFFFFF)
                 self.send_response(200); self.send_header("Content-Type", "audio/wav"); self.send_header("Transfer-Encoding", "chunked"); self.end_headers(); self._chunk(header)
                 while STATE.running and process.poll() is None:
-                    chunk = process.stdout.read(32768)
+                    chunk = process.stdout.read(PCM_READ_BYTES)
                     if not chunk: break
                     self._chunk(STATE.audio_chunk(chunk))
                 return
