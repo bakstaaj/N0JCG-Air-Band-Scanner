@@ -61,3 +61,15 @@ def test_squelch_gate_fades_without_hard_chunk_edges(tmp_path, monkeypatch):
     silence = array("h")
     silence.frombytes(state.audio_chunk(array("h", [500] * 4096).tobytes()))
     assert silence[0] > silence[100] > silence[1000] >= silence[-1] == 0
+
+
+def test_manual_tune_does_not_release_into_scan(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "RUNTIME", tmp_path / "runtime")
+    state = server.RadioState(simulate=True)
+    channel = state.catalog.for_airport("KDEN")[0]
+    state.select(channel)
+    calls = []
+    monkeypatch.setattr(state, "scan", lambda nearby=False: calls.append(nearby))
+    state._release_quiet_channel()
+    assert state.manual_tuned is True
+    assert calls == []

@@ -59,6 +59,7 @@ class RadioState:
         self.squelch_transitions = 0
         self.squelch_quiet_since = None
         self.scan_nearby = False
+        self.manual_tuned = False
         self.release_pending = False
         self.trial_started_at = self._load_trial_started_at()
         self.trial_expired = False
@@ -189,6 +190,7 @@ class RadioState:
             self._stop_audio()
             self.paused = False
             self.scan_nearby = nearby
+            self.manual_tuned = False
             self.release_pending = False
             channels = self.channels(nearby)
             scan_channels = self.available_channels(nearby)
@@ -214,6 +216,7 @@ class RadioState:
                 return self.snapshot({"error": "The five-minute trial has expired. Restart the trial to continue scanning."})
             self._stop_audio()
             self.scan_nearby = False
+            self.manual_tuned = True
             self.release_pending = False
             self.tuned = channel
             self.running = True
@@ -280,7 +283,7 @@ class RadioState:
                 self.squelch_quiet_since = None
             elif self.squelch_quiet_since is None:
                 self.squelch_quiet_since = time.monotonic()
-            elif self.running and not self.release_pending and time.monotonic() - self.squelch_quiet_since >= SQUELCH_SCAN_RELEASE_SECONDS:
+            elif self.running and not self.manual_tuned and not self.release_pending and time.monotonic() - self.squelch_quiet_since >= SQUELCH_SCAN_RELEASE_SECONDS:
                 self.release_pending = True
                 rescan = True
             target_gain = 1.0 if self.squelch_open else 0.0
@@ -300,7 +303,7 @@ class RadioState:
 
     def _release_quiet_channel(self) -> None:
         with self.lock:
-            if not self.running or self.paused:
+            if not self.running or self.paused or self.manual_tuned:
                 self.release_pending = False
                 return
             nearby = self.scan_nearby
