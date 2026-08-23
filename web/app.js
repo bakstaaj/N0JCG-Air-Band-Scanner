@@ -35,11 +35,23 @@ function render(state) {
   $("scanState").textContent = state.paused ? "Paused" : state.running ? "Scanning / audio live" : "Stopped";
   radioRunning = Boolean(state.running);
   $("start").textContent = radioRunning ? "Stop" : "Start";
+  const trial = state.trial || {};
+  const registered = Boolean(state.registration?.registered || trial.registered);
+  const trialExpired = !registered && Boolean(trial.expired);
+  $("trialStatus").textContent = registered ? "Registered" : trialExpired ? "Trial expired" : `Trial ${formatTrialTime(trial.remaining_seconds ?? 300)}`;
+  $("trialStatus").className = `trial-badge${trialExpired ? " expired" : registered ? " registered" : ""}`;
+  $("trialRestart").hidden = registered || !trialExpired;
+  $("start").disabled = trialExpired;
+  $("skip").disabled = trialExpired;
+  $("tunedPause").disabled = trialExpired || tunedControl !== "active";
+  $("tunedBlock").disabled = trialExpired || tunedControl !== "active";
   const winner = state.candidates?.[0];
   $("candidates").innerHTML = (state.candidates || []).map((c) => `<div class="candidate ${winner && c.channel.frequency_hz === winner.channel.frequency_hz ? "winner" : ""}"><span><strong>${esc(c.channel.serviced_facility || "Manual")}</strong> ${esc(c.channel.frequency_use || "")}<small>${fmt(c.channel.frequency_hz)} · ${c.snr_db.toFixed(1)} dB</small></span>${renderChannelControls(c.channel)}</div>`).join("") || "No spectrum candidates yet.";
   renderSettings(state.settings);
   bindChannelControls();
 }
+
+function formatTrialTime(seconds) { const remaining = Math.max(0, Number(seconds) || 0); const minutes = Math.floor(remaining / 60); const secondsPart = remaining % 60; return `${String(minutes).padStart(2, "0")}:${String(secondsPart).padStart(2, "0")}`; }
 
 function renderChannelControls(channel) {
   const frequency = Number(channel.frequency_hz);
@@ -81,6 +93,7 @@ async function scan(nearby = scanScope === "nearby") { await ensurePcmPlayer(); 
 async function skipCurrent() { if (!currentTunedFrequency) throw new Error("There is no currently locked channel to skip."); await updateChannelControl("pause", currentTunedFrequency); await scan(); }
 async function stop() { stopPcmAudio(); render(await api("/api/stop", {method: "POST", body: "{}"})); $("audioStatus").hidden = false; $("audioStatus").textContent = "Audio stopped."; }
 async function toggleScan() { if (radioRunning) return stop(); return scan(); }
+async function restartTrial() { const state = await api("/api/trial/restart", {method: "POST", body: "{}"}); render(state); await scan(); }
 async function tune(frequencyHz) { stopPcmAudio(); const state = await api("/api/select", {method: "POST", body: JSON.stringify({frequency_hz: frequencyHz})}); render(state); await startPcmAudio(); }
 async function findAirport() { const data = await api(`/api/airport?code=${encodeURIComponent($("airport").value)}`); $("airportResults").innerHTML = data.channels.length ? data.channels.map((c) => `<div class="result"><span><strong>${esc(c.frequency_use)}</strong><small>${fmt(c.frequency_hz)}</small></span><span class="channel-row-actions"><button type="button" data-freq="${c.frequency_hz}">Tune</button>${renderChannelControls(c)}</span></div>`).join("") : "No channels found."; document.querySelectorAll("[data-freq]").forEach((button) => button.addEventListener("click", () => run(() => tune(Number(button.dataset.freq))))); bindChannelControls(); }
 async function loadNearby() { const data = await api("/api/nearby"); window.channelControlMap = data.channel_controls || {}; $("nearbySummary").textContent = `${data.channels.length} channels within ${Number(data.radius_miles).toFixed(1)} miles of ${data.location.label}.`; $("nearbyChannels").innerHTML = data.channels.length ? data.channels.map((c) => `<div class="nearby-row"><span><strong>${esc(c.serviced_facility)}</strong> ${esc(c.frequency_use)}<small>${fmt(c.frequency_hz)} · ${esc(c.serviced_facility_name || "")} · ${c.distance_miles} mi</small></span><span class="channel-row-actions"><button type="button" data-nearby-freq="${c.frequency_hz}">Tune</button>${renderChannelControls(c)}</span></div>`).join("") : "No FAA channels found in this radius."; document.querySelectorAll("[data-nearby-freq]").forEach((button) => button.addEventListener("click", () => run(() => tune(Number(button.dataset.nearbyFreq))))); bindChannelControls(); }
@@ -95,3 +108,4 @@ function updateAudioDiagnostics() { if (!audioRing) return; const diagnostics = 
 async function refresh() { try { const state = await api("/api/status"); render(state); if (audioGainNode && audioContext) { const open = Boolean(state.settings?.tuning?.squelch_open); audioGainNode.gain.setTargetAtTime(open ? 1 : 0, audioContext.currentTime, 0.02); } $("status").textContent = "READY"; $("status").className = "pill ok"; } catch (error) { $("status").textContent = "OFFLINE"; $("status").className = "pill warn"; } }
 
 $("menuToggle").addEventListener("click", openOperatorMenu); $("menuClose").addEventListener("click", closeOperatorMenu); $("menuBackdrop").addEventListener("click", closeOperatorMenu); document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeOperatorMenu(); }); $("scanFull").addEventListener("change", () => { scanScope = "full"; }); $("scanNearbyScope").addEventListener("change", () => { scanScope = "nearby"; }); $("start").addEventListener("click", () => run(toggleScan)); $("skip").addEventListener("click", () => run(skipCurrent)); $("tunedPause").addEventListener("click", () => run(() => updateTunedChannel("pause"))); $("tunedBlock").addEventListener("click", () => run(() => updateTunedChannel("block"))); $("clearAll").addEventListener("click", () => run(clearAllChannelControls)); $("find").addEventListener("click", () => run(findAirport)); $("saveLocation").addEventListener("click", () => run(saveLocation)); $("saveTuning").addEventListener("click", () => run(saveTuning)); $("squelchDown").addEventListener("click", () => run(() => adjustSquelch(-100))); $("squelchUp").addEventListener("click", () => run(() => adjustSquelch(100))); refresh(); loadNearby().catch(() => {}); setInterval(refresh, 1000); setInterval(updateAudioDiagnostics, 1000);
+$("trialRestart").addEventListener("click", () => run(restartTrial));

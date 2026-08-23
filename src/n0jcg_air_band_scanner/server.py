@@ -33,6 +33,7 @@ DEFAULT_RADIUS_MILES = 25.0
 DEFAULT_ACTIVITY_THRESHOLD_RMS = 1300.0
 DEFAULT_RF_GAIN_DB = 40.2
 DEFAULT_SQUELCH_RMS = 1300.0
+TRIAL_SECONDS = 5 * 60
 
 
 class RadioState:
@@ -58,6 +59,9 @@ class RadioState:
         self.squelch_quiet_since = None
         self.scan_nearby = False
         self.release_pending = False
+        self.trial_started_at = None
+        self.trial_expired = False
+        threading.Thread(target=self._trial_watchdog, name="airband-trial-watchdog", daemon=True).start()
 
     def _load_settings(self) -> None:
         try:
@@ -78,6 +82,53 @@ class RadioState:
 
     def registration(self) -> dict:
         return registration_status(RUNTIME / "registration.json")
+
+    def trial_status(self) -> dict:
+        if self.registration().get("registered"):
+            return {"registered": True, "active": False, "expired": False, "remaining_seconds": None, "duration_seconds": TRIAL_SECONDS}
+        with self.lock:
+            if self.trial_started_at is None:
+                return {"registered": False, "active": False, "expired": False, "remaining_seconds": TRIAL_SECONDS, "duration_seconds": TRIAL_SECONDS}
+            remaining = max(0, int(TRIAL_SECONDS - (time.monotonic() - self.trial_started_at)))
+            expired = self.trial_expired or remaining <= 0
+            return {"registered": False, "active": not expired, "expired": expired, "remaining_seconds": remaining, "duration_seconds": TRIAL_SECONDS}
+
+    def _trial_watchdog(self) -> None:
+        while True:
+            time.sleep(1)
+            with self.lock:
+                if self.registration().get("registered") or self.trial_started_at is None or self.trial_expired:
+                    continue
+                if time.monotonic() - self.trial_started_at >= TRIAL_SECONDS:
+                    self.trial_expired = True
+                    self.running = False
+                    self.paused = False
+                    self._stop_audio()
+
+    def _start_or_reject_trial_locked(self) -> bool:
+        if self.registration().get("registered"):
+            return True
+        if self.trial_started_at is None:
+            self.trial_started_at = time.monotonic()
+            self.trial_expired = False
+            return True
+        if self.trial_expired or time.monotonic() - self.trial_started_at >= TRIAL_SECONDS:
+            self.trial_expired = True
+            self.running = False
+            self._stop_audio()
+            return False
+        return True
+
+    def restart_trial(self) -> dict:
+        with self.lock:
+            if self.registration().get("registered"):
+                return self.snapshot()
+            self._stop_audio()
+            self.running = False
+            self.paused = False
+            self.trial_started_at = time.monotonic()
+            self.trial_expired = False
+            return self.snapshot()
 
     def channels(self, nearby: bool = False) -> list[dict]:
         if not nearby: return self.catalog.channels()
@@ -116,6 +167,8 @@ class RadioState:
 
     def scan(self, nearby: bool = False) -> dict:
         with self.lock:
+            if not self._start_or_reject_trial_locked():
+                return self.snapshot({"error": "The five-minute trial has expired. Restart the trial to continue scanning."})
             self._stop_audio()
             self.paused = False
             self.scan_nearby = nearby
@@ -140,6 +193,8 @@ class RadioState:
 
     def select(self, channel: dict) -> dict:
         with self.lock:
+            if not self._start_or_reject_trial_locked():
+                return self.snapshot({"error": "The five-minute trial has expired. Restart the trial to continue scanning."})
             self._stop_audio()
             self.scan_nearby = False
             self.release_pending = False
@@ -293,7 +348,7 @@ class RadioState:
             return self.snapshot()
 
     def snapshot(self, extra: dict | None = None) -> dict:
-        result = {"ok": True, "product": PRODUCT_NAME, "version": VERSION, "simulate": self.simulate, "rtl_serial": REQUIRED_RTL_SERIAL, "running": self.running, "paused": self.paused, "registration": self.registration(), "tuned": self._with_control(self.tuned) if self.tuned else None, "settings": self.settings_payload(), "candidates": [{"channel": self._with_control(item.channel), "peak_frequency_hz": item.peak_frequency_hz, "peak_dbfs": item.peak_dbfs, "noise_floor_dbfs": item.noise_floor_dbfs, "snr_db": item.snr_db} for item in self.candidates]}
+        result = {"ok": True, "product": PRODUCT_NAME, "version": VERSION, "simulate": self.simulate, "rtl_serial": REQUIRED_RTL_SERIAL, "running": self.running, "paused": self.paused, "registration": self.registration(), "trial": self.trial_status(), "tuned": self._with_control(self.tuned) if self.tuned else None, "settings": self.settings_payload(), "candidates": [{"channel": self._with_control(item.channel), "peak_frequency_hz": item.peak_frequency_hz, "peak_dbfs": item.peak_dbfs, "noise_floor_dbfs": item.noise_floor_dbfs, "snr_db": item.snr_db} for item in self.candidates]}
         if extra: result.update(extra)
         return result
 
@@ -373,6 +428,7 @@ class Handler(BaseHTTPRequestHandler):
             if path in ("/api/scan", "/api/scan/nearby"): self._json(STATE.scan(path.endswith("nearby"))); return
             if path == "/api/pause": self._json(STATE.pause_scan()); return
             if path == "/api/stop": self._json(STATE.stop()); return
+            if path == "/api/trial/restart": self._json(STATE.restart_trial()); return
             if path == "/api/select":
                 payload = self._payload(); match = next((item for item in STATE.catalog.channels() if int(item["frequency_hz"]) == int(payload.get("frequency_hz", 0))), None)
                 if not match: self._json({"ok": False, "error": "channel_not_found"}, 404); return
