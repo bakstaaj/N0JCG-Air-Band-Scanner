@@ -41,6 +41,7 @@ class RadioState:
         self.simulate = simulate
         self.catalog = AirbandCatalog(CATALOG)
         self.settings_path = RUNTIME / "settings.json"
+        self.trial_path = RUNTIME / "trial.json"
         self.settings = {"location": dict(DEFAULT_LOCATION), "radius_miles": DEFAULT_RADIUS_MILES, "activity_threshold_rms": DEFAULT_ACTIVITY_THRESHOLD_RMS, "rf_gain_db": DEFAULT_RF_GAIN_DB, "search_mode": "fast_spectrum", "spectrum_margin_db": 8.0, "squelch_rms": DEFAULT_SQUELCH_RMS, "channel_controls": {}}
         self._load_settings()
         self.lock = threading.RLock()
@@ -59,9 +60,23 @@ class RadioState:
         self.squelch_quiet_since = None
         self.scan_nearby = False
         self.release_pending = False
-        self.trial_started_at = None
+        self.trial_started_at = self._load_trial_started_at()
         self.trial_expired = False
         threading.Thread(target=self._trial_watchdog, name="airband-trial-watchdog", daemon=True).start()
+
+    def _load_trial_started_at(self):
+        try:
+            saved = json.loads(self.trial_path.read_text(encoding="utf-8"))
+            started_wall = float(saved.get("started_at", 0))
+            if started_wall > 0:
+                return time.monotonic() - max(0.0, time.time() - started_wall)
+        except (OSError, ValueError, TypeError):
+            pass
+        return None
+
+    def _save_trial_started_at(self) -> None:
+        RUNTIME.mkdir(parents=True, exist_ok=True)
+        self.trial_path.write_text(json.dumps({"started_at": time.time()}, indent=2) + "\n", encoding="utf-8")
 
     def _load_settings(self) -> None:
         try:
@@ -111,6 +126,7 @@ class RadioState:
         if self.trial_started_at is None:
             self.trial_started_at = time.monotonic()
             self.trial_expired = False
+            self._save_trial_started_at()
             return True
         if self.trial_expired or time.monotonic() - self.trial_started_at >= TRIAL_SECONDS:
             self.trial_expired = True
@@ -128,6 +144,7 @@ class RadioState:
             self.paused = False
             self.trial_started_at = time.monotonic()
             self.trial_expired = False
+            self._save_trial_started_at()
             return self.snapshot()
 
     def channels(self, nearby: bool = False) -> list[dict]:
