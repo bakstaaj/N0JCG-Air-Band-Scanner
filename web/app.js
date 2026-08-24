@@ -40,6 +40,7 @@ function render(state) {
   const trialExpired = !registered && Boolean(trial.expired);
   $("trialStatus").textContent = registered ? "Registered" : trialExpired ? "Restart Trial" : `Trial ${formatTrialTime(trial.remaining_seconds ?? 300)}`;
   $("trialStatus").className = `trial-badge${trialExpired ? " expired" : registered ? " registered" : ""}`;
+  $("trialStatus").hidden = registered;
   $("trialStatus").disabled = registered || !trialExpired;
   $("start").disabled = trialExpired;
   $("skip").disabled = trialExpired;
