@@ -14,7 +14,9 @@ On Raspberry Pi OS, copy the repository to the Pi and run `sudo ./deploy/install
 
 ## Trial and registration
 
-An unregistered installation starts a five-minute trial when scanning or tuning first begins. The header shows the remaining time; the trial control is disabled while the timer is running. When the trial expires, the same control becomes **Restart Trial** and scanning/tuning controls remain disabled until it is selected. Registered installations show **Registered** and do not use the trial timeout.
+An unregistered installation starts a five-minute trial when scanning or tuning first begins. The header shows the remaining time; the trial control is disabled while the timer is running. When the trial expires, the same control becomes **Restart Trial** and scanning/tuning controls remain disabled until it is selected. Registered installations hide the trial control and do not use the trial timeout.
+
+To register, open **Menu → Registration**, enter the N0JCG license S/N and the registered purchaser email, and select **Activate license**. Air Band Scanner uses product ID `n0jcg-air-band-scanner` and license prefix `N0JCG-ABS-`. Activation is sent through the application backend to the N0JCG licensing service; the signed license lease is cached locally for continued operation and refresh.
 
 ## Tuning and location controls
 
