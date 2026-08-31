@@ -1,5 +1,7 @@
 # N0JCG Air Band Scanner User Guide
 
+Release `v0.1.3`
+
 ## Product boundary
 
 N0JCG Air Band Scanner is a standalone, receive-only civil Airband application. It does not transmit, key a radio, decode encrypted traffic, or share runtime ownership with N0JCG NOAA Weather Radio, N0JCG Scanner, or N0JCG Air Traffic Center.
@@ -16,7 +18,13 @@ On Raspberry Pi OS, copy the repository to the Pi and run `sudo ./deploy/install
 
 An unregistered installation starts a five-minute trial when scanning or tuning first begins. The header shows the remaining time; the trial control is disabled while the timer is running. When the trial expires, the same control becomes **Restart Trial** and scanning/tuning controls remain disabled until it is selected. Registered installations hide the trial control and do not use the trial timeout.
 
-To register, open **Menu → Registration**, enter the N0JCG license S/N and the registered purchaser email, and select **Activate license**. Air Band Scanner uses product ID `n0jcg-air-band-scanner` and license prefix `N0JCG-ABS-`. Activation is sent through the application backend to the N0JCG licensing service; the signed license lease is cached locally for continued operation and refresh.
+To register, open **Menu → Registration**, enter the N0JCG license S/N and the registered purchaser email, and select **Activate license**. Air Band Scanner uses the following product registration identity:
+
+- Product name: **N0JCG Air Band Scanner**
+- Product ID: `n0jcg-air-band-scanner`
+- License prefix: `N0JCG-ABS-`
+
+Activation is sent through the application backend to the N0JCG licensing service; the signed license lease is cached locally for continued operation and refresh. After successful registration, the trial timer/status control is removed from the header.
 
 ## Tuning and location controls
 
@@ -49,7 +57,7 @@ The airport-code lookup, FFT candidates, receiver tuning, and receiver location 
 
 The main page provides scan scope, Start/Stop, Skip, compact squelch controls, current-channel Pause/Block/Clear, and Nearby FAA Tune actions.
 
-![Operator menu](screenshots-airband-menu.png)
+![Operator menu with registration](screenshots-airband-menu.png)
 
 The operator menu contains receiver tuning, receiver location/radius, airport-code lookup, and FFT candidate tools.
 
