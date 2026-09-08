@@ -443,6 +443,9 @@ class Handler(BaseHTTPRequestHandler):
                 finally:
                     STATE.audio_stream_lock.release()
                 return
+            if parsed.path == "/VERSION":
+                body = f"{VERSION}\n".encode("ascii")
+                self.send_response(200); self.send_header("Content-Type", "text/plain; charset=utf-8"); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
             if parsed.path == "/": self._serve("index.html"); return
             self._serve(parsed.path.lstrip("/"))
         except (ValueError, KeyError, TypeError) as error: self._json({"ok": False, "error": str(error)}, 400)

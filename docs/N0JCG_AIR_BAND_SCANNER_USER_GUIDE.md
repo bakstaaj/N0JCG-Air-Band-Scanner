@@ -1,6 +1,6 @@
 # N0JCG Air Band Scanner User Guide
 
-Release `v0.1.3`
+Release `v1.0.0`
 
 ## Product boundary
 

@@ -115,3 +115,15 @@ async function refresh() { try { const state = await api("/api/status"); render(
 $("menuToggle").addEventListener("click", openOperatorMenu); $("menuClose").addEventListener("click", closeOperatorMenu); $("menuBackdrop").addEventListener("click", closeOperatorMenu); document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeOperatorMenu(); }); $("scanFull").addEventListener("change", () => { scanScope = "full"; }); $("scanNearbyScope").addEventListener("change", () => { scanScope = "nearby"; }); $("start").addEventListener("click", () => run(toggleScan)); $("skip").addEventListener("click", () => run(skipCurrent)); $("tunedPause").addEventListener("click", () => run(() => updateTunedChannel("pause"))); $("tunedBlock").addEventListener("click", () => run(() => updateTunedChannel("block"))); $("clearAll").addEventListener("click", () => run(clearAllChannelControls)); $("find").addEventListener("click", () => run(findAirport)); $("saveLocation").addEventListener("click", () => run(saveLocation)); $("saveTuning").addEventListener("click", () => run(saveTuning)); $("squelchDown").addEventListener("click", () => run(() => adjustSquelch(-100))); $("squelchUp").addEventListener("click", () => run(() => adjustSquelch(100))); $("activateLicenseBtn").addEventListener("click", () => run(activateLicense)); refresh(); loadNearby().catch(() => {}); setInterval(refresh, 1000); setInterval(updateAudioDiagnostics, 1000);
 $("trialStatus").addEventListener("click", () => run(restartTrial));
 moveSettingsIntoMenu();
+
+fetch("/VERSION", {cache: "no-store"})
+  .then((response) => (response.ok ? response.text() : ""))
+  .then((version) => {
+    version = version.trim();
+    if (version) {
+      document.querySelectorAll("[data-release-version]").forEach((element) => {
+        element.textContent = `v${version}`;
+      });
+    }
+  })
+  .catch(() => {});

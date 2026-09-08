@@ -1,6 +1,6 @@
 [project]
 name = "n0jcg-air-band-scanner"
-version = "0.1.0"
+version = "1.0.0"
 description = "Receive-only civil Airband scanner for RTL-SDR serial 00000118"
 requires-python = ">=3.11"
 

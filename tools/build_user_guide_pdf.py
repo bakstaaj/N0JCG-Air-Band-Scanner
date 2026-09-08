@@ -7,7 +7,8 @@ from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle, Image, KeepTogether
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "docs" / "publications" / "N0JCG_Air_Band_Scanner_User_Guide_v0.1.3.pdf"
+RELEASE_VERSION = (ROOT / "VERSION").read_text().strip()
+OUT = ROOT / "docs" / "publications" / f"N0JCG_Air_Band_Scanner_User_Guide_v{RELEASE_VERSION}.pdf"
 LOGO = ROOT / "web" / "assets" / "N0JCG_Header_Dark_Approved.png"
 MAIN = ROOT / "docs" / "screenshots-airband-main.png"
 MENU = ROOT / "docs" / "screenshots-airband-menu.png"
@@ -44,7 +45,7 @@ def footer(canvas, doc):
     canvas.line(0.85*inch, 0.58*inch, 7.65*inch, 0.58*inch)
     canvas.setFillColor(MUTED)
     canvas.setFont("Helvetica", 8)
-    canvas.drawString(0.85*inch, 0.38*inch, "N0JCG Open Radio Platform  |  Air Band Scanner v0.1.3")
+    canvas.drawString(0.85*inch, 0.38*inch, f"N0JCG Open Radio Platform  |  Air Band Scanner v{RELEASE_VERSION}")
     canvas.drawRightString(7.65*inch, 0.38*inch, f"Page {doc.page}")
     canvas.restoreState()
 
@@ -57,7 +58,7 @@ def metadata_table(rows):
 story = []
 banner = Table([[Image(str(LOGO), width=4.5*inch, height=0.86*inch)]], colWidths=[6.8*inch], rowHeights=[1.25*inch])
 banner.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,-1), NAVY), ("VALIGN", (0,0), (-1,-1), "MIDDLE"), ("ALIGN", (0,0), (-1,-1), "CENTER")]))
-story += [banner, Spacer(1, 0.45*inch), P("OPERATOR HANDBOOK", "Kicker"), P("N0JCG Air Band Scanner", "CoverTitle"), P("Installation, registration, operation, and troubleshooting", "CoverSub"), Spacer(1, 0.1*inch), P("A receive-only civil Airband scanner for FFT-directed channel selection, airport-code lookup, and browser audio.", "CalloutN0"), metadata_table([("RELEASE", "0.1.3 Preview"), ("RECEIVER", "RTL-SDR EEPROM serial 00000118"), ("BAND", "118.000–136.975 MHz civil Airband"), ("REGISTRATION", "n0jcg-air-band-scanner / N0JCG-ABS-"), ("AUDIENCE", "Operators and maintainers")]), PageBreak()]
+story += [banner, Spacer(1, 0.45*inch), P("OPERATOR HANDBOOK", "Kicker"), P("N0JCG Air Band Scanner", "CoverTitle"), P("Installation, registration, operation, and troubleshooting", "CoverSub"), Spacer(1, 0.1*inch), P("A receive-only civil Airband scanner for FFT-directed channel selection, airport-code lookup, and browser audio.", "CalloutN0"), metadata_table([("RELEASE", f"{RELEASE_VERSION} Preview"), ("RECEIVER", "RTL-SDR EEPROM serial 00000118"), ("BAND", "118.000–136.975 MHz civil Airband"), ("REGISTRATION", "n0jcg-air-band-scanner / N0JCG-ABS-"), ("AUDIENCE", "Operators and maintainers")]), PageBreak()]
 
 story += [P("Contents", "H1N0"), P("Use this guide from initial hardware setup through daily operation and maintenance."), *bullets(["Product boundary and safety", "Hardware and installation", "Trial and registration", "Scanning, tuning, and browser audio", "Nearby FAA and airport-code workflows", "Channel controls and troubleshooting", "Audio/RF reference and acceptance checklist"]), P("Receiver ownership is serial-first. The application is bound to RTL-SDR serial 00000118; USB enumeration indexes are not permanent assignments.", "CalloutN0"), P("1. Product boundary and safety", "H1N0"), P("N0JCG Air Band Scanner is a standalone, receive-only civil Airband application. It does not transmit, key a radio, decode encrypted traffic, or share runtime ownership with N0JCG Scanner, N0JCG NOAA Weather Radio, or N0JCG Air Traffic Center."), *bullets(["Use an antenna and filter path appropriate for approximately 118–137 MHz.", "Do not interpret monitoring output as navigation, safety-of-flight, or dispatch guidance.", "Stop the service before changing hardware or assigning the RTL-SDR to another application."]), P("2. Hardware and installation", "H1N0"), P("Use a Raspberry Pi or compatible Linux host with rtl_power and rtl_fm installed. Connect the RTL-SDR programmed with EEPROM serial 00000118 and an appropriate Airband antenna."), P("On Raspberry Pi OS, copy the repository to the Pi and run <font name='Courier'>sudo ./deploy/install.sh</font>. The operator interface is served on port 8087. Run <font name='Courier'>./deploy/install.sh --check-only</font> before installation to distinguish missing tools from RF problems."), PageBreak()]
 
