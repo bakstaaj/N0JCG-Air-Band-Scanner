@@ -22,7 +22,8 @@ async function api(path, options = {}) {
 }
 
 function render(state) {
-  $("serial").textContent = state.rtl_serial || "-";
+  const serial = $("serial");
+  if (serial) serial.textContent = state.rtl_serial || "-";
   renderRegistration(state.registration);
   $("tuned").textContent = state.tuned ? `${state.tuned.serviced_facility || "Manual"} ${state.tuned.frequency_use || ""}` : "Not tuned";
   $("frequency").textContent = state.tuned ? fmt(state.tuned.frequency_hz) : "-";
