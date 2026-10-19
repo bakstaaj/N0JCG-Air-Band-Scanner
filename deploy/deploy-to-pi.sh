@@ -18,6 +18,8 @@ required_files=(
   "${REPO_ROOT}/web/app.js"
   "${REPO_ROOT}/VERSION"
   "${REPO_ROOT}/src/n0jcg_air_band_scanner/__init__.py"
+  "${REPO_ROOT}/src/n0jcg_air_band_scanner/registration.py"
+  "${REPO_ROOT}/src/n0jcg_licensing/client.py"
   "${REPO_ROOT}/src/n0jcg_air_band_scanner/server.py"
 )
 
@@ -44,6 +46,8 @@ echo "Deploying Air Band Scanner to ${REMOTE}:${APP_ROOT}"
   "${REPO_ROOT}/web/app.css" \
   "${REPO_ROOT}/VERSION" \
   "${REPO_ROOT}/src/n0jcg_air_band_scanner/__init__.py" \
+  "${REPO_ROOT}/src/n0jcg_air_band_scanner/registration.py" \
+  "${REPO_ROOT}/src/n0jcg_licensing/client.py" \
   "${REPO_ROOT}/src/n0jcg_air_band_scanner/server.py" \
   "${REMOTE}:/tmp/"
 
@@ -53,9 +57,9 @@ if ! "${SSH[@]}" "${REMOTE}" "${remote_install}"; then
     read -r -s -p "Pi password for sudo: " PI_PASSWORD
     echo
   fi
-  printf '%s\n' "${PI_PASSWORD}" | "${SSH[@]}" "${REMOTE}" "sudo -S -p '' sh -c 'install -m 0644 /tmp/index.html ${APP_ROOT}/web/index.html && install -m 0644 /tmp/app.js ${APP_ROOT}/web/app.js && install -m 0644 /tmp/app.css ${APP_ROOT}/web/app.css && install -m 0644 /tmp/VERSION ${APP_ROOT}/VERSION && install -m 0644 /tmp/__init__.py ${APP_ROOT}/src/n0jcg_air_band_scanner/__init__.py && install -m 0644 /tmp/server.py ${APP_ROOT}/src/n0jcg_air_band_scanner/server.py && systemctl restart ${SERVICE}'"
+  printf '%s\n' "${PI_PASSWORD}" | "${SSH[@]}" "${REMOTE}" "sudo -S -p '' sh -c 'install -m 0644 /tmp/index.html ${APP_ROOT}/web/index.html && install -m 0644 /tmp/app.js ${APP_ROOT}/web/app.js && install -m 0644 /tmp/app.css ${APP_ROOT}/web/app.css && install -m 0644 /tmp/VERSION ${APP_ROOT}/VERSION && install -m 0644 /tmp/__init__.py ${APP_ROOT}/src/n0jcg_air_band_scanner/__init__.py && install -m 0644 /tmp/registration.py ${APP_ROOT}/src/n0jcg_air_band_scanner/registration.py && install -m 0644 /tmp/client.py ${APP_ROOT}/src/n0jcg_licensing/client.py && install -m 0644 /tmp/server.py ${APP_ROOT}/src/n0jcg_air_band_scanner/server.py && systemctl restart ${SERVICE}'"
 else
-  "${SSH[@]}" "${REMOTE}" "sudo install -m 0644 /tmp/index.html ${APP_ROOT}/web/index.html && sudo install -m 0644 /tmp/app.js ${APP_ROOT}/web/app.js && sudo install -m 0644 /tmp/app.css ${APP_ROOT}/web/app.css && sudo install -m 0644 /tmp/VERSION ${APP_ROOT}/VERSION && sudo install -m 0644 /tmp/__init__.py ${APP_ROOT}/src/n0jcg_air_band_scanner/__init__.py && sudo install -m 0644 /tmp/server.py ${APP_ROOT}/src/n0jcg_air_band_scanner/server.py && sudo systemctl restart ${SERVICE}"
+  "${SSH[@]}" "${REMOTE}" "sudo install -m 0644 /tmp/index.html ${APP_ROOT}/web/index.html && sudo install -m 0644 /tmp/app.js ${APP_ROOT}/web/app.js && sudo install -m 0644 /tmp/app.css ${APP_ROOT}/web/app.css && sudo install -m 0644 /tmp/VERSION ${APP_ROOT}/VERSION && sudo install -m 0644 /tmp/__init__.py ${APP_ROOT}/src/n0jcg_air_band_scanner/__init__.py && sudo install -m 0644 /tmp/registration.py ${APP_ROOT}/src/n0jcg_air_band_scanner/registration.py && sudo install -m 0644 /tmp/client.py ${APP_ROOT}/src/n0jcg_licensing/client.py && sudo install -m 0644 /tmp/server.py ${APP_ROOT}/src/n0jcg_air_band_scanner/server.py && sudo systemctl restart ${SERVICE}"
 fi
 
 "${SSH[@]}" "${REMOTE}" "systemctl is-active --quiet ${SERVICE}"

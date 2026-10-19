@@ -132,6 +132,7 @@ class LicenseClient:
         environment: Mapping[str, str] | None = None,
         opener: Callable[..., Any] = urllib.request.urlopen,
         now: Callable[[], float] = time.time,
+        persistent_registration: bool = False,
     ) -> None:
         self.product_slug = str(product_slug).strip().lower()
         self.app_version = str(app_version).strip()
@@ -144,6 +145,7 @@ class LicenseClient:
         self.lease_path = self.state_root / "license_lease.json"
         self._opener = opener
         self._now = now
+        self.persistent_registration = bool(persistent_registration)
         self._lock = threading.RLock()
         self._last_validation_error = ""
         self._last_validation_epoch: float | None = None
@@ -274,6 +276,8 @@ class LicenseClient:
         return self.status()
 
     def refresh(self) -> dict[str, Any]:
+        if self.persistent_registration:
+            return self.status()
         credentials = self._read_json(self.credentials_path)
         if not credentials:
             return self.status()
@@ -326,7 +330,7 @@ class LicenseClient:
                 verified = False
         expires_at = int(lease.get("expires_at") or 0) if verified else 0
         grace_until = int(lease.get("grace_until") or 0) if verified else 0
-        registered = verified and now <= grace_until
+        registered = verified if self.persistent_registration else verified and now <= grace_until
         online_valid = registered and now <= expires_at
         return {
             "serial_number": self.serial_number,
@@ -344,6 +348,8 @@ class LicenseClient:
         }
 
     def start_background_refresh(self, interval_seconds: int = DEFAULT_REFRESH_SECONDS) -> None:
+        if self.persistent_registration:
+            return
         if self._refresh_thread and self._refresh_thread.is_alive():
             return
 

@@ -24,7 +24,7 @@ To register, open **Menu → Registration**, enter the N0JCG license S/N and the
 - Product ID: `n0jcg-air-band-scanner`
 - License prefix: `N0JCG-ABS-`
 
-Activation is sent through the application backend to the N0JCG licensing service; the signed license lease is cached locally for continued operation and refresh. After successful registration, the trial timer/status control is removed from the header.
+Activation is sent through the application backend to the N0JCG licensing service; the signed registration lease is verified once and cached locally for continued operation. Air Band Scanner does not require periodic license refreshing after successful registration. After successful registration, the trial timer/status control is removed from the header.
 
 ## Tuning and location controls
 

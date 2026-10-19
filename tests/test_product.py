@@ -5,6 +5,7 @@ from pathlib import Path
 from n0jcg_air_band_scanner.catalog import AirbandCatalog
 from n0jcg_air_band_scanner.fft_scan import score_channels, simulated_spectrum
 from n0jcg_air_band_scanner import server
+from n0jcg_licensing import LicenseClient
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -39,6 +40,27 @@ def test_registration_metadata(tmp_path):
     assert metadata["product_name"] == "N0JCG Air Band Scanner"
     assert metadata["product_id"] == "n0jcg-air-band-scanner"
     assert metadata["license_prefix"] == "N0JCG-ABS-"
+
+
+def test_registered_airband_installation_does_not_expire_or_refresh(tmp_path, monkeypatch):
+    client = LicenseClient(
+        product_slug="n0jcg-air-band-scanner",
+        app_version="1.0.0",
+        state_root=tmp_path / "license",
+        environment={"N0JCG_INSTALLATION_ID": "test-installation"},
+        now=lambda: 2_000_000_000,
+        persistent_registration=True,
+    )
+    client._write_private_json(client.credentials_path, {"license_serial": "N0JCG-ABS-ABCD-2345-EFGH-JKLM", "email": "operator@example.com"})
+    client._write_private_json(client.lease_path, {"lease": {"license_suffix": "ABCD", "expires_at": 1, "grace_until": 2}, "signature": "cached"})
+    monkeypatch.setattr(client, "_verify_response", lambda response, email: response["lease"])
+
+    status = client.status()
+
+    assert status["registered"] is True
+    assert status["trial_limit_seconds"] is None
+    client.start_background_refresh(interval_seconds=1)
+    assert client._refresh_thread is None
 
 
 def test_channel_pause_and_block_exclude_from_scan(tmp_path, monkeypatch):

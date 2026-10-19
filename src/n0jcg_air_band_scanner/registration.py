@@ -12,7 +12,7 @@ from . import LICENSE_PREFIX, PRODUCT_ID, PRODUCT_NAME, VERSION
 
 
 def _client(path: Path) -> LicenseClient:
-    return LicenseClient(product_slug=PRODUCT_ID, app_version=VERSION, state_root=path.parent / "license")
+    return LicenseClient(product_slug=PRODUCT_ID, app_version=VERSION, state_root=path.parent / "license", persistent_registration=True)
 
 
 def registration_status(path: Path) -> dict[str, object]:
